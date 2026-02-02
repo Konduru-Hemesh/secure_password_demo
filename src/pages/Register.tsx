@@ -2,13 +2,17 @@ import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { Shield, Eye, EyeOff, ArrowRight, Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Register() {
+    const { register } = useAuth();
     const [, setLocation] = useLocation();
     const [masterPassword, setMasterPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [email, setEmail] = useState('');
+    const [name, setName] = useState('');
+    const [loading, setLoading] = useState(false);
 
     // Password strength calculation
     const getPasswordStrength = (password: string) => {
@@ -37,13 +41,18 @@ export default function Register() {
         { met: /[^a-zA-Z0-9]/.test(masterPassword), text: 'Special characters' },
     ];
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (strength.score >= 3 && passwordsMatch) {
-            // Mock: Save to localStorage
-            localStorage.setItem('vaultMasterPassword', masterPassword);
-            localStorage.setItem('vaultEmail', email);
-            setLocation('/dashboard');
+            setLoading(true);
+            try {
+                await register(email, masterPassword, name);
+                setLocation('/dashboard');
+            } catch (err) {
+                // Error is handled by showToast in AuthContext
+            } finally {
+                setLoading(false);
+            }
         }
     };
 
@@ -68,6 +77,19 @@ export default function Register() {
                     </p>
 
                     <form onSubmit={handleSubmit} className="space-y-6">
+                        {/* Name */}
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Full Name</label>
+                            <input
+                                type="text"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                className="w-full px-4 py-3 bg-secondary/30 border border-white/10 rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
+                                placeholder="John Doe"
+                                required
+                            />
+                        </div>
+
                         {/* Email */}
                         <div>
                             <label className="block text-sm font-medium mb-2">Email</label>
@@ -164,11 +186,11 @@ export default function Register() {
                         {/* Submit */}
                         <button
                             type="submit"
-                            disabled={strength.score < 3 || !passwordsMatch}
+                            disabled={strength.score < 3 || !passwordsMatch || loading}
                             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
                         >
-                            Create Vault
-                            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                            {loading ? 'Creating Vault...' : 'Create Vault'}
+                            {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
                         </button>
                     </form>
 

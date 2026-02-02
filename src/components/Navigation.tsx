@@ -1,12 +1,14 @@
 import { useLocation } from 'wouter';
-import { Home, Settings, Lock, AlertOctagon, PieChart } from 'lucide-react';
+import { Home, Settings, AlertOctagon, PieChart, Sun, Moon } from 'lucide-react';
 import { useAutoLock } from '../contexts/AutoLockContext';
 import { useToast } from '../contexts/ToastContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function Navigation() {
     const [location, setLocation] = useLocation();
-    const { lockVault, panicLock } = useAutoLock();
+    const { panicLock } = useAutoLock();
     const { showToast } = useToast();
+    const { theme, toggleTheme } = useTheme();
 
     const navItems = [
         { path: '/dashboard', icon: Home, label: 'Vault' },
@@ -14,11 +16,6 @@ export default function Navigation() {
         // { path: '/extension', icon: Chrome, label: 'Extension' },
         { path: '/settings', icon: Settings, label: 'Settings' },
     ];
-
-    const handleLock = () => {
-        showToast('Vault locked', 'info');
-        lockVault();
-    };
 
     const handlePanicLock = () => {
         showToast('Emergency lock activated!', 'warning');
@@ -44,13 +41,13 @@ export default function Navigation() {
 
                 <div className="w-px h-8 bg-white/10 mx-1" />
 
+                {/* Theme Toggle */}
                 <button
-                    onClick={handleLock}
+                    onClick={toggleTheme}
                     className="px-3 py-2 rounded-xl flex items-center gap-2 text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all text-sm"
-                    title="Lock Vault (Ctrl+L)"
+                    title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
                 >
-                    <Lock className="w-4 h-4" />
-                    <span className="font-medium hidden md:inline">Lock</span>
+                    {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                 </button>
 
                 <button

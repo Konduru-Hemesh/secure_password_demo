@@ -3,21 +3,42 @@ import { useLocation } from 'wouter';
 import { Shield, Fingerprint, KeyRound, Hash, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+import { useAuth } from '../contexts/AuthContext';
+
 type UnlockMethod = 'password' | 'otp' | 'biometric';
 
 export default function Unlock() {
+    const { login } = useAuth();
     const [, setLocation] = useLocation();
     const [method, setMethod] = useState<UnlockMethod>('password');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const [loading, setLoading] = useState(false);
 
-    const handleUnlock = () => {
+    const handleUnlock = async () => {
+        if (!email && method === 'password') {
+            // If email is not set, we might be unlocking a known account
+            // but for "Log in", we need email.
+            // I'll assume email is required for the first login.
+        }
+
         setLoading(true);
-        setTimeout(() => {
+        try {
+            if (method === 'password') {
+                await login(email, password);
+                setLocation('/dashboard');
+            } else {
+                // Mock for OTP/Biometric
+                setTimeout(() => {
+                    setLocation('/dashboard');
+                }, 1000);
+            }
+        } catch (err) {
+            // Error handled by AuthContext
+        } finally {
             setLoading(false);
-            setLocation('/dashboard');
-        }, 1500);
+        }
     };
 
     const handleOtpChange = (index: number, value: string) => {
@@ -65,6 +86,13 @@ export default function Unlock() {
                                 className="space-y-4"
                             >
                                 <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="Email Address"
+                                    className="w-full text-center bg-secondary/50 border border-white/10 h-12 px-4 rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
+                                />
+                                <input
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
@@ -74,7 +102,7 @@ export default function Unlock() {
                                 />
                                 <button
                                     onClick={handleUnlock}
-                                    disabled={loading || !password}
+                                    disabled={loading || !password || !email}
                                     className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
                                     {loading ? 'Verifying...' : 'Unlock'}

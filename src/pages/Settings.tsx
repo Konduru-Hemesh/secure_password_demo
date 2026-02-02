@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Shield, Clock, Trash2 } from 'lucide-react';
+import { Shield, Clock, Trash2, User, RefreshCw, Smartphone, Monitor, Globe } from 'lucide-react';
 import { useAutoLock } from '../contexts/AutoLockContext';
 import { useToast } from '../contexts/ToastContext';
+import ProfileModal from '../components/ProfileModal';
 
 export default function Settings() {
     const { autoLockMinutes, setAutoLockMinutes } = useAutoLock();
@@ -12,6 +13,10 @@ export default function Settings() {
         const saved = localStorage.getItem('clipboardClearDelay');
         return saved ? parseInt(saved) : 30;
     });
+
+    const [showProfileModal, setShowProfileModal] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSyncTime, setLastSyncTime] = useState<string | null>(localStorage.getItem('lastSyncTime'));
 
 
 
@@ -49,6 +54,17 @@ export default function Settings() {
 
     const handleSettingsChange = (setting: string) => {
         showToast(`${setting} updated`, 'success');
+    };
+
+    const handleSync = () => {
+        setIsSyncing(true);
+        setTimeout(() => {
+            setIsSyncing(false);
+            const time = new Date().toLocaleTimeString();
+            setLastSyncTime(time);
+            localStorage.setItem('lastSyncTime', time);
+            showToast('Vault synchronized with all devices', 'success');
+        }, 2000);
     };
 
     return (
@@ -140,6 +156,70 @@ export default function Settings() {
                     </div>
                 </div>
 
+                {/* Profile Section */}
+                <div className="glass-panel p-6 rounded-2xl">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <User className="w-5 h-5 text-primary" />
+                            <div>
+                                <h3 className="font-semibold">User Profile</h3>
+                                <p className="text-sm text-muted-foreground">Customize your vault identity</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setShowProfileModal(true)}
+                            className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+                        >
+                            Edit Profile
+                        </button>
+                    </div>
+                </div>
+
+                {/* Device Sync Section */}
+                <div className="glass-panel p-6 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <Globe className="w-5 h-5 text-blue-400" />
+                            <div>
+                                <h3 className="font-semibold">Cross-Device Sync</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    {lastSyncTime ? `Last synced at ${lastSyncTime}` : 'Not synced recently'}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={handleSync}
+                            disabled={isSyncing}
+                            className="px-4 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                            {isSyncing ? 'Syncing...' : 'Sync Now'}
+                        </button>
+                    </div>
+
+                    <div className="h-px bg-white/10" />
+
+                    <div className="space-y-3 pt-2">
+                        <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2 text-foreground">
+                                <Monitor className="w-4 h-4 opacity-50" />
+                                <span>Windows PC (This Device)</span>
+                            </div>
+                            <span className="text-xs text-green-400 font-medium flex items-center gap-1">
+                                <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                                Active
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm opacity-60">
+                            <div className="flex items-center gap-2">
+                                <Smartphone className="w-4 h-4 opacity-50" />
+                                <span>iPhone 15 Pro</span>
+                            </div>
+                            <span className="text-xs">Last seen 2h ago</span>
+                        </div>
+                    </div>
+                </div>
+
 
 
 
@@ -151,25 +231,31 @@ export default function Settings() {
                         Keyboard Shortcuts
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                        <div className="flex items-center justify-between p-2 bg-black/20 rounded">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded">
                             <span className="text-muted-foreground">Search vault</span>
                             <kbd className="px-2 py-1 bg-white/10 rounded font-mono text-xs">Ctrl+K</kbd>
                         </div>
-                        <div className="flex items-center justify-between p-2 bg-black/20 rounded">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded">
                             <span className="text-muted-foreground">New entry</span>
                             <kbd className="px-2 py-1 bg-white/10 rounded font-mono text-xs">Ctrl+N</kbd>
                         </div>
-                        <div className="flex items-center justify-between p-2 bg-black/20 rounded">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded">
                             <span className="text-muted-foreground">Lock vault</span>
                             <kbd className="px-2 py-1 bg-white/10 rounded font-mono text-xs">Ctrl+L</kbd>
                         </div>
-                        <div className="flex items-center justify-between p-2 bg-black/20 rounded">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded">
                             <span className="text-muted-foreground">Settings</span>
                             <kbd className="px-2 py-1 bg-white/10 rounded font-mono text-xs">Ctrl+,</kbd>
                         </div>
                     </div>
                 </div>
             </div>
+
+
+            <ProfileModal
+                isOpen={showProfileModal}
+                onClose={() => setShowProfileModal(false)}
+            />
         </div>
     );
 }

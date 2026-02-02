@@ -1,40 +1,37 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Star, Copy, Eye, Trash2, Edit, Check, EyeOff, AlertTriangle, Tag, Download, Upload, Shield } from 'lucide-react';
+import { Search, Plus, Star, Copy, Eye, Trash2, Edit, Check, EyeOff, Tag, Download, Upload, Shield, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ProfileModal from '../components/ProfileModal';
 import EntryModal from '../components/EntryModal';
 import DeleteConfirm from '../components/DeleteConfirm';
 import { useToast } from '../contexts/ToastContext';
-import { calculatePasswordStrength, isCommonPassword } from '../utils/passwordStrength';
-
-interface VaultEntry {
-    id: number;
-    website: string;
-    username: string;
-    password: string;
-    securityQuestion?: string;
-    securityAnswer?: string;
-    isFavorite: boolean;
-    category?: string;
-    passwordHistory?: Array<{ password: string; changedAt: string }>;
-}
+import { useVault } from '../contexts/VaultContext';
+import { useAuth } from '../contexts/AuthContext';
+import { cryptoService } from '../services/crypto.service';
+import { calculatePasswordStrength } from '../utils/passwordStrength';
+import type { VaultEntry } from '../types/vault.types';
 
 export default function Dashboard() {
     const { showToast } = useToast();
+    const { user } = useAuth();
+    const { entries, isSyncing, syncVault, addEntry, updateEntry, deleteEntry, lastSynced, isOnline, syncStatus } = useVault();
     const [search, setSearch] = useState('');
     const [copiedId, setCopiedId] = useState<number | null>(null);
-    const [revealedId, setRevealedId] = useState<number | null>(null);
+    const [revealedIds, setRevealedIds] = useState<Record<number, string>>({});
     const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
-    const [entries, setEntries] = useState<VaultEntry[]>(() => {
-        const saved = localStorage.getItem('vaultEntries');
-        return saved ? JSON.parse(saved) : [];
-    });
 
-    // Persist entries
-    useEffect(() => {
-        localStorage.setItem('vaultEntries', JSON.stringify(entries));
-    }, [entries]);
+    const statusMap = {
+        synced: { label: 'In Sync', color: 'text-emerald-500' },
+        pending: { label: 'Sync Pending', color: 'text-primary' },
+        syncing: { label: 'Syncing...', color: 'text-primary' },
+        offline: { label: 'Offline', color: 'text-orange-500' },
+        error: { label: 'Sync Error', color: 'text-red-500' }
+    };
 
+    const currentStatus = statusMap[syncStatus] || statusMap.pending;
+
+    const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEntry, setEditingEntry] = useState<VaultEntry | undefined>(undefined);
     const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
@@ -59,7 +56,7 @@ export default function Dashboard() {
         return matchesSearch && matchesFavorite && matchesCategory;
     });
 
-    const handleCopy = (id: number, password: string, secQuestion?: string, secAnswer?: string) => {
+    const handleCopy = async (id: number, encryptedPass: string, secQuestion?: string, secAnswer?: string) => {
         if (secQuestion && secAnswer) {
             setSecurityChallenge({
                 isOpen: true,
@@ -71,7 +68,8 @@ export default function Dashboard() {
             return;
         }
 
-        executeCopy(id, password);
+        const pass = await cryptoService.decrypt(encryptedPass, 'master-key');
+        executeCopy(id, pass);
     };
 
     const executeCopy = (id: number, password: string) => {
@@ -80,33 +78,48 @@ export default function Dashboard() {
         showToast(`Password copied! Will clear in ${clearClipboardSeconds}s`, 'success');
 
         setTimeout(() => {
-            if (copiedId === id) {
-                navigator.clipboard.writeText('');
-                setCopiedId(null);
-            }
-        }, 30000);
+            setCopiedId(prev => (prev === id ? null : prev));
+        }, clearClipboardSeconds * 1000);
     };
 
-    const handleChallengeSubmit = (e: React.FormEvent) => {
+    const handleChallengeSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const entry = entries.find(ent => ent.id === securityChallenge.entryId);
         if (!entry) return;
 
         if (securityChallenge.input.toLowerCase().trim() === entry.securityAnswer?.toLowerCase().trim()) {
-            executeCopy(entry.id, entry.password);
+            const pass = await cryptoService.decrypt(entry.password, 'master-key');
+            executeCopy(entry.id, pass);
             setSecurityChallenge(prev => ({ ...prev, isOpen: false }));
         } else {
             showToast('Incorrect security answer', 'error');
         }
     };
 
-    const handleReveal = (id: number) => {
-        setRevealedId(id);
-        setTimeout(() => setRevealedId(null), 10000);
+    const handleReveal = async (id: number, encryptedPass: string) => {
+        if (revealedIds[id]) {
+            const next = { ...revealedIds };
+            delete next[id];
+            setRevealedIds(next);
+            return;
+        }
+
+        const pass = await cryptoService.decrypt(encryptedPass, 'master-key');
+        setRevealedIds(prev => ({ ...prev, [id]: pass }));
+        setTimeout(() => {
+            setRevealedIds(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
+        }, 10000);
     };
 
     const toggleFavorite = (id: number) => {
-        setEntries(entries.map(e => e.id === id ? { ...e, isFavorite: !e.isFavorite } : e));
+        const entry = entries.find(e => e.id === id);
+        if (entry) {
+            updateEntry(id, { isFavorite: !entry.isFavorite });
+        }
     };
 
     const handleAddNew = () => {
@@ -121,35 +134,13 @@ export default function Dashboard() {
         setIsModalOpen(true);
     };
 
-    const handleSaveEntry = (entryData: Omit<VaultEntry, 'id'> & { id?: number }) => {
-        if (modalMode === 'edit' && entryData.id) {
-            // Track password history if password changed
-            const existingEntry = entries.find(e => e.id === entryData.id);
-            let passwordHistory = existingEntry?.passwordHistory || [];
-
-            if (existingEntry && existingEntry.password !== entryData.password) {
-                passwordHistory = [
-                    { password: existingEntry.password, changedAt: new Date().toISOString() },
-                    ...passwordHistory.slice(0, 4) // Keep last 5 passwords
-                ];
-            }
-
-            setEntries(entries.map(e => e.id === entryData.id ? {
-                ...entryData,
-                id: e.id,
-                passwordHistory
-            } as VaultEntry : e));
-            showToast('Entry updated successfully', 'success');
+    const handleSaveEntry = async (entryData: any) => {
+        if (modalMode === 'edit' && editingEntry) {
+            await updateEntry(editingEntry.id, entryData);
         } else {
-            const newEntry: VaultEntry = {
-                ...entryData,
-                id: Math.max(...entries.map(e => e.id), 0) + 1,
-                isFavorite: entryData.isFavorite || false,
-                passwordHistory: []
-            };
-            setEntries([...entries, newEntry]);
-            showToast('Entry added successfully', 'success');
+            await addEntry(entryData);
         }
+        setIsModalOpen(false);
     };
 
     const handleDeleteClick = (entry: VaultEntry) => {
@@ -157,15 +148,50 @@ export default function Dashboard() {
         setDeleteConfirmOpen(true);
     };
 
-    const handleDeleteConfirm = () => {
+    const handleDeleteConfirm = async () => {
         if (entryToDelete) {
-            setEntries(entries.filter(e => e.id !== entryToDelete.id));
-            showToast(`"${entryToDelete.website}" deleted`, 'success');
+            await deleteEntry(entryToDelete.id);
             setEntryToDelete(null);
         }
     };
 
 
+
+
+    const handleExport = () => {
+        const dataStr = JSON.stringify(entries, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `vault-backup-encrypted-${new Date().toISOString().split('T')[0]}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+        showToast('Vault exported (encrypted)', 'success');
+    };
+
+    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const imported = JSON.parse(event.target?.result as string);
+                if (Array.isArray(imported)) {
+                    // Simple bulk import: add each entry
+                    imported.forEach(entry => addEntry(entry));
+                    showToast(`Imported ${imported.length} entries.`, 'success');
+                } else {
+                    showToast('Invalid vault file format', 'error');
+                }
+            } catch (error) {
+                showToast('Failed to import vault', 'error');
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
 
     useEffect(() => {
         const handleKeyboard = (e: KeyboardEvent) => {
@@ -204,12 +230,27 @@ export default function Dashboard() {
 
     return (
         <div className="min-h-screen bg-background pb-24">
-            <div className="border-b border-white/5 glass-panel sticky top-0 z-10 transition-all backdrop-blur-xl bg-black/40">
+            <div className="border-b border-border/40 glass-panel sticky top-0 z-10 transition-all backdrop-blur-xl">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
                     {/* Header Top Row */}
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                         <div>
-                            <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Your Vault</h1>
+                            <div className="flex items-center gap-3">
+                                <h1 className="text-2xl font-display font-bold text-foreground">Your Vault</h1>
+                                <div className="flex items-center gap-2 px-2 py-1 bg-white/5 rounded-lg border border-white/10">
+                                    <button
+                                        onClick={syncVault}
+                                        disabled={isSyncing || !isOnline}
+                                        className={`p-1 rounded-md hover:bg-white/5 transition-all ${isSyncing ? 'animate-spin text-primary' : isOnline ? 'text-emerald-500' : 'text-muted-foreground'}`}
+                                        title={lastSynced ? `Last synced: ${new Date(lastSynced).toLocaleTimeString()}` : 'Not synced yet'}
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                    </button>
+                                    <span className={`text-[10px] uppercase tracking-wider font-bold ${currentStatus.color}`}>
+                                        {currentStatus.label}
+                                    </span>
+                                </div>
+                            </div>
                             <p className="text-sm text-muted-foreground flex items-center mt-1">
                                 <span className={`w-2 h-2 rounded-full mr-2 animate-pulse ${securityScore > 70 ? 'bg-emerald-500' : securityScore > 40 ? 'bg-yellow-500' : 'bg-red-500'}`} />
                                 Security Score: {securityScore}% • {entries.length} Entries
@@ -233,7 +274,31 @@ export default function Dashboard() {
                         </div>
 
                         <div className="flex gap-2">
-                            {/* ... Actions ... */}
+                            {/* Profile Button */}
+                            <button
+                                onClick={() => setIsProfileModalOpen(true)}
+                                className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 transition-all flex items-center justify-center border border-white/5 overflow-hidden"
+                                title={user?.email || 'My Profile'}
+                            >
+                                <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center text-primary font-bold">
+                                    {user?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'V'}
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={handleExport}
+                                className="px-3 py-2 rounded-xl font-medium flex items-center gap-2 bg-white/5 hover:bg-white/10 transition-all text-sm"
+                                title="Export Vault"
+                            >
+                                <Download className="w-4 h-4" />
+                                <span className="hidden sm:inline">Export</span>
+                            </button>
+                            <label className="px-3 py-2 rounded-xl font-medium flex items-center gap-2 bg-white/5 hover:bg-white/10 transition-all text-sm cursor-pointer" title="Import Vault">
+                                <Upload className="w-4 h-4" />
+                                <span className="hidden sm:inline">Import</span>
+                                <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                            </label>
+
                             <button
                                 onClick={handleAddNew}
                                 className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition-all glow-on-hover ripple shadow-lg shadow-primary/20"
@@ -307,8 +372,6 @@ export default function Dashboard() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <AnimatePresence>
                             {filteredEntries.map((entry, index) => {
-                                const strength = calculatePasswordStrength(entry.password);
-                                const isWeak = isCommonPassword(entry.password);
                                 const favicon = getFavicon(entry.website);
 
                                 return (
@@ -330,10 +393,6 @@ export default function Dashboard() {
                                                             src={favicon}
                                                             alt=""
                                                             className="w-6 h-6 object-contain opacity-80 group-hover:opacity-100 transition-opacity"
-                                                            onError={(e) => {
-                                                                (e.target as HTMLImageElement).style.display = 'none';
-                                                                (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                                                            }}
                                                         />
                                                     ) : null}
                                                     <div className={`${favicon ? 'hidden' : ''} w-full h-full flex items-center justify-center`}>
@@ -354,30 +413,13 @@ export default function Dashboard() {
                                         </div>
 
                                         <div className="mb-4 flex flex-wrap items-center gap-2">
-
-                                            {isWeak ? (
-                                                <div className="px-2.5 py-1 rounded-md text-xs font-semibold text-red-500 bg-red-500/10 border border-red-500/20 flex items-center gap-1.5 animate-pulse">
-                                                    <AlertTriangle className="w-3 h-3" />
-                                                    Breach Risk
-                                                </div>
-                                            ) : (
-                                                <div className={`px-2.5 py-1 rounded-md text-xs font-medium border ${strength.score >= 3 ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' :
-                                                    strength.score >= 2 ? 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20' :
-                                                        'text-red-500 bg-red-500/10 border-red-500/20'
-                                                    }`}>
-                                                    {strength.label}
+                                            {entry.version > 1 && (
+                                                <div className="px-2.5 py-1 rounded-md text-xs font-medium border text-primary bg-primary/10 border-primary/20">
+                                                    v{entry.version}
                                                 </div>
                                             )}
-
                                             {entry.category && (
-                                                <div className={`px-2.5 py-1 rounded-md text-xs font-medium border flex items-center gap-1 ${entry.category === 'Work' ? 'text-blue-400 bg-blue-400/10 border-blue-400/20' :
-                                                    entry.category === 'Personal' ? 'text-purple-400 bg-purple-400/10 border-purple-400/20' :
-                                                        entry.category === 'Finance' ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' :
-                                                            entry.category === 'Social' ? 'text-pink-400 bg-pink-400/10 border-pink-400/20' :
-                                                                entry.category === 'Entertainment' ? 'text-orange-400 bg-orange-400/10 border-orange-400/20' :
-                                                                    entry.category === 'Shopping' ? 'text-indigo-400 bg-indigo-400/10 border-indigo-400/20' :
-                                                                        'text-muted-foreground bg-white/5 border-white/5'
-                                                    }`}>
+                                                <div className="px-2.5 py-1 rounded-md text-xs font-medium border flex items-center gap-1 text-muted-foreground bg-white/5 border-white/5">
                                                     <Tag className="w-3 h-3" />
                                                     {entry.category}
                                                 </div>
@@ -386,21 +428,15 @@ export default function Dashboard() {
 
                                         <div className="mb-4 bg-black/40 rounded-xl p-3 font-mono text-sm border border-white/5 flex items-center gap-2 group/pass">
                                             <span className="flex-1 truncate tracking-wider text-muted-foreground/70 group-hover/pass:text-foreground transition-colors">
-                                                {revealedId === entry.id ? entry.password : '••••••••••••'}
+                                                {revealedIds[entry.id] || '••••••••••••'}
                                             </span>
                                             <button
-                                                onClick={() => revealedId === entry.id ? setRevealedId(null) : handleReveal(entry.id)}
+                                                onClick={() => handleReveal(entry.id, entry.password)}
                                                 className="text-muted-foreground hover:text-primary transition-colors p-1"
                                             >
-                                                {revealedId === entry.id ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                {revealedIds[entry.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                             </button>
                                         </div>
-
-                                        {entry.securityQuestion && (
-                                            <div className="mb-4 text-xs text-muted-foreground bg-white/5 p-2 rounded-lg italic">
-                                                Q: {entry.securityQuestion}
-                                            </div>
-                                        )}
 
                                         <div className="flex gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
                                             <button
@@ -448,6 +484,11 @@ export default function Dashboard() {
                 onSave={handleSaveEntry}
                 entry={editingEntry}
                 mode={modalMode}
+            />
+
+            <ProfileModal
+                isOpen={isProfileModalOpen}
+                onClose={() => setIsProfileModalOpen(false)}
             />
 
             <DeleteConfirm

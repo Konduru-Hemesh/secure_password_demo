@@ -11,6 +11,9 @@ import Navigation from './components/Navigation';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ToastProvider } from './contexts/ToastContext';
 import { AutoLockProvider } from './contexts/AutoLockContext';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { VaultProvider } from './contexts/VaultContext';
+import { AuthProvider } from './contexts/AuthContext';
 import './index.css';
 
 function PageTransition({ children }: { children: React.ReactNode }) {
@@ -59,40 +62,46 @@ function App() {
   return (
     <ErrorBoundary>
       <ToastProvider>
-        <AutoLockProvider>
-          <AnimatePresence mode="wait">
-            <Switch location={location} key={location}>
-              <Route path="/" component={Landing} />
-              <Route path="/register" component={Register} />
-              <Route path="/unlock" component={Unlock} />
-              <Route path="/dashboard">
-                <Dashboard />
-                <Navigation />
-              </Route>
-              <Route path="/settings">
-                <PageTransition>
-                  <Settings />
-                  <Navigation />
-                </PageTransition>
-              </Route>
-              <Route path="/insights">
-                <PageTransition>
-                  <Insights />
-                  <Navigation />
-                </PageTransition>
-              </Route>
-              <Route>
-                <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
-                  <div className="text-center">
-                    <h1 className="text-4xl font-bold mb-4">404</h1>
-                    <p className="text-muted-foreground">Page not found</p>
-                  </div>
-                </div>
-              </Route>
-            </Switch>
-          </AnimatePresence>
-        </AutoLockProvider >
-      </ToastProvider >
+        <ThemeProvider>
+          <AuthProvider>
+            <AutoLockProvider>
+              <VaultProvider>
+                <AnimatePresence mode="wait">
+                  <Switch location={location} key={location}>
+                    <Route path="/" component={Landing} />
+                    <Route path="/register" component={Register} />
+                    <Route path="/unlock" component={Unlock} />
+                    <Route path="/dashboard">
+                      <Dashboard />
+                      <Navigation />
+                    </Route>
+                    <Route path="/settings">
+                      <PageTransition>
+                        <Settings />
+                        <Navigation />
+                      </PageTransition>
+                    </Route>
+                    <Route path="/insights">
+                      <PageTransition>
+                        <Insights />
+                        <Navigation />
+                      </PageTransition>
+                    </Route>
+                    <Route>
+                      <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
+                        <div className="text-center">
+                          <h1 className="text-4xl font-bold mb-4">404</h1>
+                          <p className="text-muted-foreground">Page not found</p>
+                        </div>
+                      </div>
+                    </Route>
+                  </Switch>
+                </AnimatePresence>
+              </VaultProvider>
+            </AutoLockProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </ToastProvider>
     </ErrorBoundary >
   );
 }

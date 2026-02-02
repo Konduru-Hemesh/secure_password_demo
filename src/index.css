@@ -9,9 +9,47 @@
   line-height: 1.5;
   font-weight: 400;
 
+  --background: 224 71% 4%;
+  --foreground: 210 40% 98%;
+  --card: 224 71% 4%;
+  --primary: 160 84% 39%;
+  --primary-foreground: 144 61% 20%;
+  --secondary: 215 28% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 215 28% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 210 40% 98%;
+  --accent-foreground: 224 71% 4%;
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217 19% 27%;
+  --input: 217 19% 27%;
+  --ring: 160 84% 39%;
+
   color-scheme: dark;
-  color: hsl(210, 40%, 98%);
-  background-color: hsl(224, 71%, 4%);
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+}
+
+.light {
+  --background: 0 0% 100%;
+  --foreground: 224 71% 4%;
+  --card: 0 0% 100%;
+  --primary: 160 84% 39%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 224 71% 4%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 8% 46%;
+  --accent: 220 14% 96%;
+  --accent-foreground: 224 71% 4%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 160 84% 39%;
+
+  color-scheme: light;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -24,7 +62,7 @@ body {
   display: flex;
   min-width: 320px;
   min-height: 100vh;
-  background-color: hsl(224, 71%, 4%);
+  background-color: hsl(var(--background));
   overflow-x: hidden;
 }
 
@@ -47,7 +85,7 @@ h6 {
 
   /* Glass panel effect */
   .glass-panel {
-    @apply bg-card/50 backdrop-blur-xl border border-white/10;
+    @apply bg-card/50 backdrop-blur-xl border border-border/50;
   }
 
   /* Enhanced glass with gradient */
