@@ -1,0 +1,6 @@
+src/extension/popup/App.tsx(19,8): error TS2307: Cannot find module './index.css' or its corresponding type declarations.
+src/extension/popup/contexts/AuthContext.test.tsx(8,1): error TS2304: Cannot find name 'global'.
+src/extension/popup/contexts/AuthContext.test.tsx(36,10): error TS2304: Cannot find name 'global'.
+src/extension/popup/contexts/AuthContext.test.tsx(56,10): error TS2304: Cannot find name 'global'.
+src/extension/popup/contexts/VaultContext.test.tsx(32,1): error TS2304: Cannot find name 'global'.
+src/extension/popup/main.tsx(3,8): error TS2307: Cannot find module './index.css' or its corresponding type declarations.

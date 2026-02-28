@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Reference repo snapshot (merged into project, no longer needed)
+w_password_manager_ref/

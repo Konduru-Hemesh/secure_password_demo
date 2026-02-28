@@ -1,0 +1,17 @@
+src/extension/components/SkeletonCard.tsx(1,1): error TS6133: 'motion' is declared but its value is never read.
+src/extension/components/VirtualizedEntryList.tsx(1,10): error TS2305: Module '"react-window"' has no exported member 'FixedSizeList'.
+src/extension/components/VirtualizedEntryList.tsx(2,15): error TS2614: Module '"@/extension/popup/pages/Dashboard"' has no exported member 'VaultEntry'. Did you mean to use 'import VaultEntry from "@/extension/popup/pages/Dashboard"' instead?
+src/extension/components/VirtualizedEntryList.tsx(35,5): error TS6133: 'onCopy' is declared but its value is never read.
+src/extension/components/VirtualizedEntryList.tsx(36,5): error TS6133: 'onReveal' is declared but its value is never read.
+src/extension/components/VirtualizedEntryList.tsx(37,5): error TS6133: 'onEdit' is declared but its value is never read.
+src/extension/components/VirtualizedEntryList.tsx(38,5): error TS6133: 'onDelete' is declared but its value is never read.
+src/extension/components/VirtualizedEntryList.tsx(39,5): error TS6133: 'onToggleFavorite' is declared but its value is never read.
+src/extension/components/VirtualizedEntryList.tsx(40,5): error TS6133: 'copiedId' is declared but its value is never read.
+src/extension/components/VirtualizedEntryList.tsx(41,5): error TS6133: 'revealedId' is declared but its value is never read.
+src/extension/popup/App.tsx(12,24): error TS2307: Cannot find module './components/Navigation' or its corresponding type declarations.
+src/extension/popup/App.tsx(13,27): error TS2307: Cannot find module './components/ErrorBoundary' or its corresponding type declarations.
+src/extension/popup/contexts/VaultContext.tsx(50,49): error TS2307: Cannot find module '../types/vault.types' or its corresponding type declarations.
+src/extension/popup/contexts/VaultContext.tsx(71,39): error TS2307: Cannot find module '../types/vault.types' or its corresponding type declarations.
+src/extension/popup/contexts/VaultContext.tsx(202,29): error TS2307: Cannot find module '../types/vault.types' or its corresponding type declarations.
+src/extension/popup/pages/Insights.tsx(3,1): error TS6133: 'motion' is declared but its value is never read.
+src/extension/popup/pages/Landing.tsx(1,1): error TS6133: 'useState' is declared but its value is never read.

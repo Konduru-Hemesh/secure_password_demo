@@ -1,132 +1,215 @@
 import express, { Response } from 'express';
-import Vault from '../models/Vault';
+import { supabase } from '../storage/supabaseClient';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 
 /**
  * GET /api/vault
- * 
- * Retrieves the full vault for the authenticated user.
- * If no vault exists, a new empty one is initialized.
- * 
- * @returns {object} The user's vault object.
+ * Retrieves the full vault metadata and entries.
  */
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.userId;
-        let vault = await Vault.findOne({ userId });
+        let { data: syncState } = await supabase
+            .from('user_sync_state')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle();
 
-        if (!vault) {
-            // Create initial empty vault if not exists
-            vault = new Vault({ userId, vaultVersion: 0, encryptedEntries: [] });
-            await vault.save();
+        if (!syncState) {
+            const { data: newState, error } = await supabase
+                .from('user_sync_state')
+                .insert([{ user_id: userId, vault_version: 0 }])
+                .select()
+                .single();
+            if (error) throw error;
+            syncState = newState;
         }
 
-        res.json(vault);
-    } catch {
+        const { data: entries } = await supabase
+            .from('vault_entries')
+            .select(`
+                id, version, title, username, password, website, category,
+                is_favorite, is_deleted, deleted_at, updated_at, device_id, encrypted_history
+            `)
+            .eq('user_id', userId);
+
+        // Convert the flat postgres rows into the expected JSON format matching the frontend model
+        const formattedEntries = (entries || []).map(row => ({
+            id: Number(row.id),
+            version: row.version,
+            title: row.title,
+            username: row.username,
+            password: row.password,
+            website: row.website,
+            category: row.category,
+            isFavorite: row.is_favorite,
+            isDeleted: row.is_deleted,
+            deletedAt: row.deleted_at,
+            updatedAt: row.updated_at,
+            device_id: row.device_id,
+            encrypted_history: row.encrypted_history
+        }));
+
+        res.json({
+            userId,
+            vaultVersion: syncState.vault_version,
+            encryptedEntries: formattedEntries,
+            lastSyncedAt: syncState.last_synced_at
+        });
+    } catch (error) {
+        console.error('Get Vault Error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });
 
 /**
  * POST /api/vault/sync
- * 
- * Synchronizes client-side changes (deltas) with the server vault.
- * Implements strict version checking to ensure data integrity.
- * 
- * @param {number} req.body.baseVersion - The version of the vault the client is building upon.
- * @param {Array} [req.body.added] - List of new entries to add.
- * @param {Array} [req.body.updated] - List of entries to update.
- * @param {Array} [req.body.deleted] - List of entry IDs to delete.
- * 
- * @returns {object} object containing success status, new vault version, and current entries.
- * @returns {409} If baseVersion does not match server version (Conflict).
+ * Merges missing client deltas.
  */
 router.post('/sync', authMiddleware, async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.userId;
         const { baseVersion, added, updated, deleted } = req.body;
 
-        const vault = await Vault.findOne({ userId });
-        if (!vault) return res.status(404).json({ error: 'Vault not found' });
+        const { data: syncState } = await supabase
+            .from('user_sync_state')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle();
 
-        // Conflict check: Strict Versioning
-        // If client baseVersion != server current version, it means client is outdated.
-        // We reject the sync and force client to pull first (or handle conflict).
-        if (baseVersion !== vault.vaultVersion) {
-            console.warn(`Conflict detected for user ${userId}: Client base ${baseVersion} vs Server ${vault.vaultVersion}`);
+        if (!syncState) return res.status(404).json({ error: 'Vault sync state not found' });
+
+        if (baseVersion !== syncState.vault_version) {
+            // Fetch current entries to return 409 conflict payload
+            const { data: entries } = await supabase
+                .from('vault_entries')
+                .select('*')
+                .eq('user_id', userId);
+
+            const formattedEntries = (entries || []).map(row => ({
+                id: Number(row.id),
+                version: row.version,
+                title: row.title,
+                username: row.username,
+                password: row.password,
+                website: row.website,
+                category: row.category,
+                isFavorite: row.is_favorite,
+                isDeleted: row.is_deleted,
+                deletedAt: row.deleted_at,
+                updatedAt: row.updated_at,
+                device_id: row.device_id,
+                encrypted_history: row.encrypted_history
+            }));
+
             return res.status(409).json({
                 error: 'Sync Conflict',
-                server_base_version: vault.vaultVersion,
-                // In a full implementation, we might send the missing deltas here.
-                // For now, client will just see the error and stop.
-                vaultVersion: vault.vaultVersion,
-                entries: vault.encryptedEntries // Send current state so client might manually resolve or re-base
+                server_base_version: syncState.vault_version,
+                vaultVersion: syncState.vault_version,
+                encryptedEntries: formattedEntries
             });
         }
 
-        // Idempotency Check (Optional but good): 
-        // We could store applied eventIds. For now, since we check baseVersion strictly, 
-        // passing the same eventId with same baseVersion twice matches logic, but we increment version.
-        // So second attempt fails conflict check. Perfect.
+        const nextVersion = syncState.vault_version + 1;
+        const upserts: any[] = [];
 
-        let currentEntries = [...vault.encryptedEntries];
-
-        // Apply Deletions (Legacy/Physical)
-        // If client sends IDs in 'deleted', we physically remove them.
-        if (deleted && deleted.length > 0) {
-            currentEntries = currentEntries.filter(e => !deleted.includes(e.id));
-        }
-
-        // Apply Additions
+        // Apply Added
         if (added && added.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            added.forEach((newEntry: any) => {
-                if (!currentEntries.find(e => e.id === newEntry.id)) {
-                    currentEntries.push(newEntry);
-                }
+            added.forEach((entry: any) => {
+                upserts.push({
+                    id: entry.id,
+                    user_id: userId,
+                    version: nextVersion,
+                    title: entry.title,
+                    username: entry.username,
+                    password: entry.password,
+                    website: entry.website,
+                    category: entry.category,
+                    is_favorite: entry.isFavorite,
+                    is_deleted: entry.isDeleted || false,
+                    deleted_at: entry.deletedAt,
+                    updated_at: entry.updatedAt,
+                    device_id: entry.device_id,
+                    encrypted_history: entry.encrypted_history || []
+                });
             });
         }
 
-        // Apply Updates (including Tombstones)
+        // Apply Updated
         if (updated && updated.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            updated.forEach((update: any) => {
-                const index = currentEntries.findIndex(e => e.id === update.id);
-                if (index !== -1) {
-                    const existing = currentEntries[index];
-                    // Server-side LWW check
-                    // If strict versioning is on, we trust the client's update is based on latest.
-                    // But we still check timestamps for sanity or sub-resource conflicts?
-                    // Actually, if version matches, client knows checking against latest.
-                    // So we overwrite.
-
-                    // We merge, preserving sensitive server-side fields if any (none really)
-                    currentEntries[index] = {
-                        ...update, // This includes isDeleted: true if it's a tombstone
-                        // Preserve history if present and not in update
-                        conflictHistory: update.conflictHistory || existing.conflictHistory
-                    };
-                } else {
-                    // Update for unknown ID? treat as add?
-                    currentEntries.push(update);
-                }
+            updated.forEach((entry: any) => {
+                upserts.push({
+                    id: entry.id,
+                    user_id: userId,
+                    version: nextVersion,
+                    title: entry.title,
+                    username: entry.username,
+                    password: entry.password,
+                    website: entry.website,
+                    category: entry.category,
+                    is_favorite: entry.isFavorite,
+                    is_deleted: entry.isDeleted || false,
+                    deleted_at: entry.deletedAt,
+                    updated_at: entry.updatedAt,
+                    device_id: entry.device_id,
+                    encrypted_history: entry.encrypted_history || []
+                });
             });
         }
 
-        // Increment Vault Version
-        vault.vaultVersion += 1;
-        vault.encryptedEntries = currentEntries;
-        vault.lastSyncedAt = new Date();
+        // Perform upserts to Vault Entries
+        if (upserts.length > 0) {
+            const { error: upsertError } = await supabase
+                .from('vault_entries')
+                .upsert(upserts, { onConflict: 'id' });
+            if (upsertError) throw upsertError;
+        }
 
-        await vault.save();
+        // Apply Deletions (Physical)
+        if (deleted && deleted.length > 0) {
+            await supabase
+                .from('vault_entries')
+                .delete()
+                .in('id', deleted)
+                .eq('user_id', userId);
+        }
+
+        // Update Sync State
+        const now = new Date().toISOString();
+        await supabase
+            .from('user_sync_state')
+            .update({ vault_version: nextVersion, last_synced_at: now })
+            .eq('user_id', userId);
+
+        // Fetch back final state
+        const { data: finalEntries } = await supabase
+            .from('vault_entries')
+            .select('*')
+            .eq('user_id', userId);
+
+        const formattedFinalEntries = (finalEntries || []).map(row => ({
+            id: Number(row.id),
+            version: row.version,
+            title: row.title,
+            username: row.username,
+            password: row.password,
+            website: row.website,
+            category: row.category,
+            isFavorite: row.is_favorite,
+            isDeleted: row.is_deleted,
+            deletedAt: row.deleted_at,
+            updatedAt: row.updated_at,
+            device_id: row.device_id,
+            encrypted_history: row.encrypted_history
+        }));
 
         res.json({
             success: true,
-            vaultVersion: vault.vaultVersion,
-            entries: vault.encryptedEntries,
-            lastSyncedAt: vault.lastSyncedAt
+            vaultVersion: nextVersion,
+            entries: formattedFinalEntries,
+            lastSyncedAt: now
         });
 
     } catch (error) {

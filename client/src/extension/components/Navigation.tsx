@@ -1,0 +1,72 @@
+import { useLocation } from 'wouter';
+import { Home, Settings, Eye, AlertOctagon, Chrome, PieChart, Sun, Moon } from 'lucide-react';
+import { useAutoLock } from '@/extension/popup/contexts/AutoLockContext';
+import { useToast } from '@/extension/popup/contexts/ToastContext';
+import { useTheme } from '@/extension/popup/contexts/ThemeContext';
+
+/**
+ * The main bottom navigation component for the application.
+ * Provides links to key sections like Vault, Insights, Extension, and Settings.
+ * Also includes theme toggling and a panic/emergency lock button.
+ * 
+ * @returns React component.
+ */
+export default function Navigation() {
+    const [location, setLocation] = useLocation();
+    const { panicLock } = useAutoLock();
+    const { showToast } = useToast();
+    const { theme, toggleTheme } = useTheme();
+
+    const navItems = [
+        { path: '/dashboard', icon: Home, label: 'Vault' },
+        { path: '/insights', icon: PieChart, label: 'Insights' },
+        { path: '/extension', icon: Chrome, label: 'Extension' },
+        { path: '/transparency', icon: Eye, label: 'Transparency' },
+        { path: '/settings', icon: Settings, label: 'Settings' },
+    ];
+
+    const handlePanicLock = () => {
+        showToast('Emergency lock activated!', 'warning');
+        panicLock();
+    };
+
+    return (
+        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+            <div className="glass-panel px-3 py-2 rounded-2xl flex items-center gap-1">
+                {navItems.map((item) => (
+                    <button
+                        key={item.path}
+                        onClick={() => setLocation(item.path)}
+                        className={`px-3 py-2 rounded-xl flex items-center gap-2 transition-all text-sm ${location === item.path
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+                            }`}
+                    >
+                        <item.icon className="w-4 h-4" />
+                        <span className="font-medium hidden md:inline">{item.label}</span>
+                    </button>
+                ))}
+
+                <div className="w-px h-8 bg-white/10 mx-1" />
+
+                {/* Theme Toggle */}
+                <button
+                    onClick={toggleTheme}
+                    className="px-3 py-2 rounded-xl flex items-center gap-2 text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all text-sm"
+                    title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+                >
+                    {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </button>
+
+                <button
+                    onClick={handlePanicLock}
+                    className="px-3 py-2 rounded-xl flex items-center gap-2 text-destructive hover:bg-destructive/10 transition-all text-sm"
+                    title="Panic Lock (Clear All Data)"
+                >
+                    <AlertOctagon className="w-4 h-4" />
+                    <span className="font-medium hidden md:inline">Panic</span>
+                </button>
+            </div>
+        </nav>
+    );
+}

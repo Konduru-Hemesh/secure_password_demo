@@ -1,91 +1,79 @@
 import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import User from '../models/User';
+import { supabase } from '../storage/supabaseClient';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
-/**
- * POST /api/auth/register
- * 
- * Registers a new user with the provided email, password, and optional display name.
- * 
- * @param {string} req.body.email - User's email address.
- * @param {string} req.body.password - User's password (will be hashed).
- * @param {string} [req.body.displayName] - Optional display name.
- * @returns {object} JSON object containing the JWT token and user details.
- */
+// POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
     try {
         const { email, password, displayName } = req.body;
         console.log('Registration request:', { email, displayName, password: '***' });
 
-        const existingUser = await User.findOne({ email });
+        const { data: existingUser } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', email)
+            .maybeSingle();
+
         if (existingUser) {
             return res.status(400).json({ error: 'User already exists' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const user = new User({
-            email,
-            password: hashedPassword,
-            displayName
-        });
+        const { data: user, error } = await supabase
+            .from('users')
+            .insert([{ email, password_hash: hashedPassword }])
+            .select()
+            .single();
 
-        await user.save();
+        if (error || !user) throw error;
 
-        const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
+        // Initialize sync state for the user
+        await supabase.from('user_sync_state').insert([{ user_id: user.id }]);
+
+        const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
 
         res.status(201).json({
             token,
-            user: {
-                id: user._id,
-                email: user.email,
-                displayName: user.displayName
-            }
+            user: { id: user.id, email: user.email, displayName }
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Registration error:', error);
-        res.status(500).json({ error: 'Server error' });
+        res.status(500).json({ error: 'Server error', details: error.message || error });
     }
 });
 
-/**
- * POST /api/auth/login
- * 
- * Authenticates a user and returns a JWT token.
- * 
- * @param {string} req.body.email - User's email.
- * @param {string} req.body.password - User's password.
- * @returns {object} JSON object containing the JWT token and user details.
- */
+// POST /api/auth/login
 router.post('/login', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
         console.log('Login request:', { email, password: '***' });
 
-        const user = await User.findOne({ email });
+        const { data: user } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', email)
+            .maybeSingle();
+
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        const isMatch = await bcrypt.compare(password, user.password);
+        const isMatch = await bcrypt.compare(password, user.password_hash);
         if (!isMatch) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
 
         res.json({
             token,
-            user: {
-                id: user._id,
-                email: user.email,
-                displayName: user.displayName
-            }
+            user: { id: user.id, email: user.email }
         });
     } catch (error) {
         console.error('Login error:', error);
@@ -93,36 +81,16 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 });
 
-/**
- * GET /api/auth/me
- * 
- * Retrieves the currently authenticated user's profile.
- * Protected route: Requires valid JWT token in Authorization header.
- * 
- * @returns {object} User profile object (excluding password).
- */
+// GET /api/auth/me
 router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     try {
-        const user = await User.findById(req.userId).select('-password');
-        if (!user) return res.status(404).json({ error: 'User not found' });
-        res.json(user);
-    } catch {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-// PATCH /api/auth/profile
-router.patch('/profile', authMiddleware, async (req: AuthRequest, res: Response) => {
-    try {
-        const { displayName } = req.body;
-        const user = await User.findByIdAndUpdate(
-            req.userId,
-            { displayName },
-            { new: true }
-        ).select('-password');
+        const { data: user } = await supabase
+            .from('users')
+            .select('id, email, created_at')
+            .eq('id', req.userId)
+            .single();
 
         if (!user) return res.status(404).json({ error: 'User not found' });
-
         res.json(user);
     } catch {
         res.status(500).json({ error: 'Server error' });

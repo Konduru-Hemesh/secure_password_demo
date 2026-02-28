@@ -1,0 +1,4 @@
+src/routes/vault.test.ts(2,22): error TS2307: Cannot find module 'mongoose' or its corresponding type declarations.
+src/routes/vault.test.ts(3,35): error TS2307: Cannot find module 'mongodb-memory-server' or its corresponding type declarations.
+src/routes/vault.test.ts(5,19): error TS2307: Cannot find module '../models/Vault' or its corresponding type declarations.
+src/routes/vault.test.ts(160,63): error TS7006: Parameter 'e' implicitly has an 'any' type.
