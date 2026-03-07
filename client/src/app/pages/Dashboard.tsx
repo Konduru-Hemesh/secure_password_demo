@@ -65,7 +65,7 @@ const ActivityRing = ({ score }: { score: number }) => {
     return (
         <div className="relative flex items-center justify-center p-6">
             <svg width="120" height="120" className="transform -rotate-90 filter drop-shadow-xl">
-                <circle cx="60" cy="60" r={radius} stroke="currentColor" strokeWidth="12" fill="transparent" className="text-white/5" />
+                <circle cx="60" cy="60" r={radius} stroke="currentColor" strokeWidth="12" fill="transparent" className="text-foreground/5" />
                 <circle
                     cx="60" cy="60" r={radius} stroke="currentColor" strokeWidth="12" fill="transparent"
                     strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
@@ -73,8 +73,8 @@ const ActivityRing = ({ score }: { score: number }) => {
                 />
             </svg>
             <div className="absolute flex flex-col items-center justify-center">
-                <span className="text-3xl font-bold text-white">{score}</span>
-                <span className="text-[10px] text-white/50 uppercase tracking-widest mt-1">Score</span>
+                <span className="text-3xl font-bold text-foreground">{score}</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">Score</span>
             </div>
         </div>
     );
@@ -302,7 +302,7 @@ export default function Dashboard() {
             <main className="flex-1 flex flex-col h-screen overflow-y-auto w-full relative">
 
                 {/* Header Row */}
-                <div className="flex items-center justify-between p-6 lg:p-10 pb-4 sticky top-0 bg-background/80 backdrop-blur-xl z-10">
+                <div className="flex items-center justify-between p-6 lg:p-10 pb-4 sticky top-0 bg-background/80 backdrop-blur-xl z-30">
                     <h1 className="text-2xl font-bold tracking-tight">Hi <span className="text-primary">User</span>,</h1>
                     <div className="flex items-center gap-6">
                         <div className="relative hidden md:block w-72 h-14 z-50">
@@ -487,33 +487,35 @@ export default function Dashboard() {
                             {/* Score Card */}
                             <div
                                 onClick={() => setIsHealthAuditOpen(true)}
-                                className="bg-[#1c1c21] dark:bg-[#0f0f13] hover:bg-[#25252b] dark:hover:bg-[#15151a] transition-all cursor-pointer border border-border/10 hover:border-border/30 rounded-[32px] overflow-hidden shadow-2xl relative group"
+                                className="bg-card hover:bg-accent/5 transition-all cursor-pointer border border-border/50 rounded-[32px] overflow-hidden shadow-2xl relative group"
                             >
                                 <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/5 transition-colors duration-500 pointer-events-none" />
                                 {/* Decor Blob */}
                                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-primary/20 blur-3xl rounded-full pointer-events-none group-hover:bg-primary/30 transition-colors" />
 
                                 <div className="p-6 pb-2 flex items-center justify-between relative z-10">
-                                    <h3 className="font-bold text-white tracking-tight flex items-center gap-2 group-hover:text-primary transition-colors">Vault Health <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></h3>
-                                    <span className="text-xs font-medium text-white/50 bg-white/5 px-2 py-1 rounded-md">Audit</span>
+                                    <h3 className="font-bold text-foreground tracking-tight flex items-center gap-2 group-hover:text-primary transition-colors">Vault Health <span className="opacity-0 group-hover:opacity-100 transition-opacity">&rarr;</span></h3>
+                                    <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded-md">Audit</span>
                                 </div>
 
                                 {healthData.length > 0 ? (
-                                    <div className="pb-6">
+                                    <div className="pb-6 flex justify-center">
                                         <DonutChart
                                             data={healthData}
                                             size={170}
                                             strokeWidth={20}
                                             centerContent={
                                                 <div className="flex flex-col items-center">
-                                                    <div className="text-xl font-bold text-white leading-none">{avgScore}</div>
-                                                    <div className="text-[10px] text-white/50 uppercase tracking-widest mt-1">Score</div>
+                                                    <div className="text-xl font-bold text-foreground leading-none">{avgScore}</div>
+                                                    <div className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">Score</div>
                                                 </div>
                                             }
                                         />
                                     </div>
                                 ) : (
-                                    <ActivityRing score={avgScore} />
+                                    <div className="flex justify-center pb-2">
+                                        <ActivityRing score={avgScore} />
+                                    </div>
                                 )}
                             </div>
 
