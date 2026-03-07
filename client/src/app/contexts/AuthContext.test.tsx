@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { AuthProvider, useAuth } from '@/extension/popup/contexts/AuthContext';
-import { ToastProvider } from '@/extension/popup/contexts/ToastContext';
-import { ReactNode } from 'react';
+import { AuthProvider, useAuth } from '@/app/contexts/AuthContext';
+import { ToastProvider } from '@/app/contexts/ToastContext';
+import type { ReactNode } from 'react';
 
 // Mock fetch using globalThis which works in both Node and browser environments
 (globalThis as any).fetch = vi.fn();

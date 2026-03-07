@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Lock, Unlock, ArrowRight } from 'lucide-react';
+import { Lock, Unlock, ArrowRight, ArrowLeft } from 'lucide-react';
+import { useLocation } from 'wouter';
 import { motion } from 'framer-motion';
 
 /**
@@ -9,6 +10,7 @@ import { motion } from 'framer-motion';
  * @returns React component.
  */
 export default function Transparency() {
+    const [, setLocation] = useLocation();
     const [plaintext, setPlaintext] = useState('');
     const [isEncrypting, setIsEncrypting] = useState(false);
     const [encrypted, setEncrypted] = useState('');
@@ -35,6 +37,13 @@ export default function Transparency() {
             {/* Header */}
             <div className="border-b border-white/5 glass-panel sticky top-0 z-10">
                 <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                    <button
+                        onClick={() => setLocation('/dashboard')}
+                        className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors mb-4 group w-fit"
+                    >
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                        <span className="text-sm font-medium">Back to Dashboard</span>
+                    </button>
                     <h1 className="text-2xl font-display font-bold">Encryption Transparency Demo</h1>
                     <p className="text-sm text-muted-foreground">See how your data is encrypted before storage</p>
                 </div>

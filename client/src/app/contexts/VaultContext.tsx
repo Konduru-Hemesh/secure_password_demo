@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type { VaultEntry, VaultState } from '@/shared/models/vault.types';
 import { cryptoService } from '@/shared/sync/crypto.service';
 import { syncService } from '@/shared/sync/sync.service';
+import { SyncQueueManager } from '@/shared/sync/sync.queue';
+import { getDeviceInfo } from '@/shared/utils/device.utils';
 import { useToast } from './ToastContext';
 import { useAuth } from './AuthContext';
 
@@ -47,116 +49,242 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [syncError, setSyncError] = useState(false);
     const [syncConflict, setSyncConflict] = useState(false);
     const [lastSynced, setLastSynced] = useState<string | null>(null);
-    const [outbox, setOutbox] = useState<import('@/shared/models/vault.types').OutboxEvent[]>([]);
     const [retryTrigger, setRetryTrigger] = useState(0);
     const userId = user?.id;
+
+    const queueManager = useMemo(() => {
+        if (!userId) return null;
+        return new SyncQueueManager(userId);
+    }, [userId]);
+
+    const [queueSize, setQueueSize] = useState(0);
+
+    // Update queue size whenever outbox changes
+    const updateQueueSize = useCallback(() => {
+        if (queueManager) {
+            setQueueSize(queueManager.size);
+        }
+    }, [queueManager]);
 
     // Stable refs to avoid re-triggering effects when callback references change
     const logoutRef = useRef(logout);
     const showToastRef = useRef(showToast);
+    const tokenRef = useRef(token);
+    // Flag: true when a cross-tab BroadcastChannel message triggered a state update.
+    // Prevents the persist effect from re-broadcasting back, which would cause an infinite loop.
+    const isCrossTabUpdateRef = useRef(false);
     useEffect(() => { logoutRef.current = logout; }, [logout]);
     useEffect(() => { showToastRef.current = showToast; }, [showToast]);
+    useEffect(() => { tokenRef.current = token; }, [token]);
 
     const syncStatus = useMemo(() => {
         if (syncConflict) return 'error';
         if (syncError) return 'error';
         if (isSyncing) return 'syncing';
-        if (outbox.length > 0) return 'pending';
+        if (queueSize > 0) return 'pending';
         // Check version mismatch (Pending means we have local changes not yet synced/outboxed)
         if (vaultVersion > serverVersion) return 'pending';
         return isOnline ? 'synced' : 'offline';
-    }, [isSyncing, syncError, syncConflict, vaultVersion, serverVersion, isOnline, outbox.length]);
+    }, [isSyncing, syncError, syncConflict, vaultVersion, serverVersion, isOnline, queueSize]);
 
-    // Initialize logic
+    // Initialize logic — runs only when user or token changes (not on network toggle)
     useEffect(() => {
+        let mounted = true;
         const initializeVault = async () => {
-            if (!userId) return;
+            if (!userId || !token) return;
 
-            // Load Outbox
-            const savedOutboxStr = localStorage.getItem(`vault_outbox_${userId}`);
+            // Load Outbox via QueueManager
             let currentOutbox: import('@/shared/models/vault.types').OutboxEvent[] = [];
-            if (savedOutboxStr) {
-                try {
-                    currentOutbox = JSON.parse(savedOutboxStr);
-                    setOutbox(currentOutbox);
-                } catch (e) {
-                    console.error('Failed to parse outbox', e);
-                }
+            if (queueManager) {
+                currentOutbox = queueManager.getQueue();
+                setQueueSize(currentOutbox.length);
             }
 
-            // 1. Try to fetch from server first
-            if (isOnline && token) {
-                try {
-                    const response = await fetch(API_BASE_URL, {
-                        headers: {
-                            'Authorization': `Bearer ${token}`
-                        }
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log('Initial fetch success:', data);
+            // Read localStorage regardless — used as fallback / merge source
+            let localEntries: VaultEntry[] = [];
+            let localVersion = 0;
+            try {
+                const savedData = localStorage.getItem(`vault_storage_${userId}`);
+                if (savedData) {
+                    const parsed: VaultState = JSON.parse(savedData);
+                    localEntries = parsed.entries || [];
+                    localVersion = parsed.vaultVersion || 0;
+                }
+            } catch (e) {
+                console.warn('Could not read localStorage on init', e);
+            }
 
-                        // Conflict Resolution on Load: Check for stale outbox
-                        if (currentOutbox.length > 0) {
-                            const firstEvent = currentOutbox[0];
-                            const serverVer = data.vaultVersion || 0;
-                            // If our baseVersion matches server, we are good to sync. 
-                            // If baseVersion != serverVer, we are stale.
-                            if (firstEvent.delta.baseVersion !== serverVer) {
-                                console.warn(`Conflict detected on load. Pruning stale outbox (Base ${firstEvent.delta.baseVersion} vs Server ${serverVer})`);
-                                setOutbox([]);
-                                currentOutbox = [];
-                                localStorage.removeItem(`vault_outbox_${userId}`);
-                                showToastRef.current('Conflict resolved: Local changes discarded.', 'info');
-                            }
-                        }
+            // --- Device Registration ---
+            const deviceIdStorageKey = `vault_device_id_${userId}`;
+            let deviceId = localStorage.getItem(deviceIdStorageKey);
+            if (!deviceId) {
+                deviceId = crypto.randomUUID();
+                localStorage.setItem(deviceIdStorageKey, deviceId);
+            }
 
-                        if (currentOutbox.length === 0) {
-                            setEntries(data.encryptedEntries || []);
-                            setVaultVersion(data.vaultVersion || 0);
-                        } else {
-                            console.log('Outbox pending - skipping overwrite of local entries until sync completes.');
-                        }
+            try {
+                const deviceInfo = getDeviceInfo();
+                await fetch('http://localhost:5000/api/devices/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        device_id: deviceId,
+                        device_name: deviceInfo
+                    })
+                });
+                console.log('Device registered/updated:', deviceInfo);
+            } catch (e) {
+                console.warn('Failed to register device during init', e);
+            }
+            // ---------------------------
 
-                        setServerVersion(data.vaultVersion || 0);
+            // 1. Always try to fetch from server first (source of truth)
+            try {
+                const response = await fetch(API_BASE_URL, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!mounted) return;
+
+                if (response.status === 401) {
+                    console.error('Server rejected token. Logging out.');
+                    showToastRef.current('Session expired. Please log in again.', 'error');
+                    logoutRef.current();
+                    return;
+                }
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const serverVer = data.vaultVersion || 0;
+                    const serverEntries: VaultEntry[] = (data.encryptedEntries || []).filter(
+                        (e: VaultEntry) => !e.isDeleted
+                    );
+
+                    console.log(`Init: server has ${serverEntries.length} entries (v${serverVer}), local has ${localEntries.length} entries (v${localVersion})`);
+
+                    // Check for stale outbox
+                    if (currentOutbox.length > 0) {
+                        const firstEvent = currentOutbox[0];
+                        if (firstEvent.delta.baseVersion !== serverVer) {
+                            console.warn(`Stale outbox (Base v${firstEvent.delta.baseVersion} vs Server v${serverVer}). Discarding.`);
+                            queueManager?.clear();
+                            currentOutbox = [];
+                            updateQueueSize();
+                        }
+                    }
+
+                    if (currentOutbox.length > 0) {
+                        // Pending local changes — keep local state, process queue will sync
+                        console.log('Outbox has pending changes — keeping local state.');
+                        if (mounted) {
+                            setEntries(localEntries);
+                            setVaultVersion(localVersion);
+                            setServerVersion(serverVer);
+                        }
+                    } else if (serverEntries.length > 0) {
+                        // Server has data — it's authoritative
+                        console.log('Using server entries as source of truth.');
+                        if (mounted) {
+                            setEntries(serverEntries);
+                            setVaultVersion(serverVer);
+                            setServerVersion(serverVer);
+                        }
+                    } else if (localEntries.length > 0) {
+                        // Server empty but local has data — restore local data and push to server
+                        // This happens when: user clears server, server resets, or first sync on a new account
+                        console.log('Server empty but local has data. Restoring local entries and scheduling upload to server.');
+                        if (mounted) {
+                            setEntries(localEntries);
+                            // Bump vaultVersion above serverVersion to trigger syncVault auto-push
+                            const bumpedVersion = Math.max(localVersion, serverVer) + 1;
+                            setVaultVersion(bumpedVersion);
+                            setServerVersion(serverVer);
+                            showToastRef.current('Local entries restored — syncing to server...', 'info');
+                        }
+                    } else {
+                        // Both server and local are empty — new user, fresh state
+                        console.log('Both server and local are empty. Fresh vault.');
+                        if (mounted) {
+                            setEntries([]);
+                            setVaultVersion(serverVer);
+                            setServerVersion(serverVer);
+                        }
+                    }
+
+                    if (mounted) {
                         setSyncError(false);
                         setSyncConflict(false);
-                        return;
-                        console.error('Server rejected old token or sync state. Logging out to fix.');
-                        showToastRef.current('Session expired. Please log in again.', 'error');
-                        logoutRef.current();
-                        return;
                     }
-                } catch (e) {
-                    console.error('Failed to fetch from server', e);
-                    setSyncError(true);
+                    return;
                 }
+            } catch (e) {
+                console.error('Failed to fetch vault from server', e);
+                if (mounted) setSyncError(true);
             }
 
-            // 2. Fallback to localStorage
-            const savedData = localStorage.getItem(`vault_storage_${userId}`);
-            if (savedData) {
-                try {
-                    const parsed: VaultState = JSON.parse(savedData);
-                    setEntries(parsed.entries || []);
-                    setVaultVersion(parsed.vaultVersion || 0);
-                    setServerVersion(parsed.serverVersion || 0);
-                    setSyncError(false);
-                } catch (e) {
-                    console.error('Failed to parse (fallback)', e);
-                }
+            // 2. Fallback: server unreachable — use localStorage
+            if (localEntries.length > 0 && mounted) {
+                console.log('Server unreachable. Loading from localStorage.');
+                setEntries(localEntries);
+                setVaultVersion(localVersion);
             }
         };
 
         initializeVault();
-    }, [userId, isOnline, token]); // stable: logout and showToast are accessed via refs
+        return () => { mounted = false; };
+    }, [userId, token, queueManager, updateQueueSize]); // isOnline intentionally excluded — init runs on auth, not network change
 
-    // Save Outbox
+    // BroadcastChannel for cross-tab eventual consistency
+    // When another tab confirms a server sync, we do a fresh GET from the server
+    // (NOT just localStorage) to ensure our state matches the authoritative server state.
+    // This prevents a cascade where loading bumped localStorage versions triggers a re-sync loop.
     useEffect(() => {
-        if (userId) {
-            localStorage.setItem(`vault_outbox_${userId}`, JSON.stringify(outbox));
-        }
-    }, [outbox, userId]);
+        if (!userId) return;
+
+        const channel = new BroadcastChannel(`vault_sync_channel_${userId}`);
+
+        channel.onmessage = async (event) => {
+            console.log('Cross-tab message received:', event.data.type);
+            if (event.data.type === 'VAULT_UPDATED') {
+                const currentToken = tokenRef.current;
+                if (!currentToken) {
+                    console.warn('Cross-tab update skipped: No token available.');
+                    return;
+                }
+
+                try {
+                    console.log('Fetching authoritative state from server for cross-tab update...');
+                    const response = await fetch(API_BASE_URL, {
+                        headers: { 'Authorization': `Bearer ${currentToken}` }
+                    });
+                    if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+
+                    const data = await response.json();
+                    const serverVer = data.vaultVersion || 0;
+                    const serverEntries: VaultEntry[] = (data.encryptedEntries || []).filter(
+                        (e: VaultEntry) => !e.isDeleted
+                    );
+
+                    console.log(`Cross-tab sync: Server has ${serverEntries.length} entries (v${serverVer})`);
+
+                    // Mark as cross-tab update so persist effect doesn't re-broadcast
+                    isCrossTabUpdateRef.current = true;
+                    setEntries(serverEntries);
+                    // Set both versions to the server version so auto-trigger never fires
+                    setVaultVersion(serverVer);
+                    setServerVersion(serverVer);
+                    updateQueueSize();
+                } catch (e) {
+                    console.error('Cross-tab refresh from server failed:', e);
+                }
+            }
+        };
+
+        return () => { channel.close(); };
+    }, [userId, updateQueueSize]);
 
     // Clear state on logout
     useEffect(() => {
@@ -164,7 +292,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setEntries([]);
             setVaultVersion(0);
             setServerVersion(0);
-            setOutbox([]);
+            setQueueSize(0);
             setSyncConflict(false);
         }
     }, [userId]);
@@ -210,10 +338,17 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         console.log('Entries:', entries.length);
 
         const delta = syncService.calculateDelta(entries, serverVersion, deviceId);
-        console.log('Calculated Delta:', delta);
+        console.log('Calculated Delta:', {
+            added: delta.added.length,
+            updated: delta.updated.length,
+            deleted: delta.deleted.length,
+            baseVersion: delta.baseVersion,
+            eventId: delta.eventId
+        });
 
         if (delta.added.length === 0 && delta.updated.length === 0 && delta.deleted.length === 0) {
-            console.log('No changes to sync.');
+            console.log(`No changes to sync (v${vaultVersion} matches server v${serverVersion}) — reconciling.`);
+            setVaultVersion(prev => Math.max(prev, serverVersion) === serverVersion ? serverVersion : prev);
             return;
         }
 
@@ -225,19 +360,13 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         console.log('Queueing event to outbox:', event);
 
-        setOutbox(prev => {
-            const last = prev[prev.length - 1];
-            // Optimization: Merge if same baseVersion
-            if (last && last.delta.baseVersion === delta.baseVersion) {
-                console.log('Merging with previous outbox event');
-                return [...prev.slice(0, -1), event];
-            }
-            return [...prev, event];
-        });
+        if (queueManager) {
+            queueManager.enqueue(event);
+            updateQueueSize();
+        }
 
-    }, [userId, entries, serverVersion, syncConflict]); // vaultVersion implied by entries check
+    }, [userId, entries, serverVersion, syncConflict, queueManager, updateQueueSize]); // vaultVersion implied by entries check
 
-    // Auto-trigger sync generation when version changes
     // Auto-trigger sync generation when version changes
     useEffect(() => {
         // If we have changes (vault > server) and no pending outbox (or maybe we want to keep adding?)
@@ -245,13 +374,15 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // If outbox has items, we might want to wait? 
         // Current logic: If outbox is empty, we are ready to generate next batch.
         // CHANGED: Removed isOnline check so we queue to outbox even if offline.
-        if (vaultVersion > serverVersion && outbox.length === 0) {
+        if (vaultVersion > serverVersion && queueSize === 0) {
             console.log('Auto-triggering syncVault...');
             syncVault();
         }
-    }, [vaultVersion, serverVersion, outbox.length, syncVault]);
+    }, [vaultVersion, serverVersion, queueSize, syncVault]);
 
-    // Persist storage
+    // Persist storage to localStorage — does NOT broadcast to other tabs.
+    // Broadcasting only happens after a confirmed server sync, ensuring other tabs
+    // only see changes that have been committed to Supabase (not offline-pending changes).
     useEffect(() => {
         if (userId) {
             const state: VaultState = { entries, vaultVersion, serverVersion };
@@ -315,6 +446,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [entries, vaultVersion, serverVersion]);
 
     const deleteEntry = useCallback(async (id: number) => {
+        console.log('deleteEntry triggered for id:', id);
         setEntries(prev => prev.map(e => {
             if (e.id === id) {
                 return {
@@ -335,14 +467,16 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     useEffect(() => {
         let mounted = true;
         const process = async () => {
-            if (!isOnline || outbox.length === 0 || syncConflict || !userId || !token) {
+            if (!queueManager) return;
+            const currentOutbox = queueManager.getQueue();
+            if (!isOnline || currentOutbox.length === 0 || syncConflict || !userId || !token) {
                 // logs can be noisy, but good for debug
                 // console.log('Skipping process:', { isOnline, len: outbox.length, syncConflict, userId });
                 return;
             }
 
             setIsSyncing(true);
-            const event = outbox[0];
+            const event = currentOutbox[0];
             console.log('Processing outbox event:', event.eventId);
 
             try {
@@ -355,7 +489,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     body: JSON.stringify(event.delta)
                 });
 
-                console.log('Sync Response Status:', response.status);
+                console.log(`Sync Response: ${response.status} ${response.statusText} for event ${event.eventId}`);
 
                 if (response.status === 409) {
                     console.warn('Sync Conflict (409). Initiating client-side resolution...');
@@ -380,17 +514,25 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     const resolvedEntries = syncService.resolveConflicts(entries, serverDeltas);
                     const newLocalVersion = Math.max(vaultVersion, pullData.vaultVersion || 0) + 1;
 
-                    // 4. Update local state
+                    // 4. Update local state with version-stamped resolved entries
                     if (mounted) {
-                        setEntries(resolvedEntries);
+                        const versionedEntries = resolvedEntries.map(e => ({ ...e, version: newLocalVersion }));
+                        console.log(`Conflict resolved locally. Pulled v${pullData.vaultVersion}, new converged v${newLocalVersion}. Enqueueing reconciliation sync.`);
+
+                        setEntries(versionedEntries);
                         setVaultVersion(newLocalVersion);
                         setServerVersion(pullData.vaultVersion || 0);
 
                         // 5. Clear outbox to re-trigger generation with new baseVersion
-                        setOutbox([]);
+                        queueManager?.clear();
+                        updateQueueSize();
                         setSyncConflict(false);
                         setSyncError(false);
-                        showToast('Conflict automatically resolved. Syncing resolved state...', 'info');
+                        // Broadcast server-confirmed state to other tabs
+                        const ch = new BroadcastChannel(`vault_sync_channel_${userId}`);
+                        ch.postMessage({ type: 'VAULT_UPDATED', timestamp: Date.now() });
+                        ch.close();
+                        showToast('Conflict resolved. Syncing merged state...', 'info');
                     }
                     setIsSyncing(false);
                     return;
@@ -402,8 +544,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 console.log('Sync Success:', result);
 
                 if (mounted) {
-                    // Success - Remove from Outbox
-                    setOutbox(prev => prev.filter(e => e.eventId !== event.eventId));
+                    // Sync successful — remove from outbox
+                    queueManager?.remove(event.eventId);
+                    updateQueueSize();
 
                     if (result.entries) {
                         setEntries(result.entries);
@@ -412,6 +555,13 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     setServerVersion(result.vaultVersion || result.entries.length);
                     setLastSynced(result.lastSyncedAt);
                     setSyncError(false);
+
+                    // Broadcast to other tabs ONLY now that the change is server-confirmed.
+                    // This ensures Tab B does NOT show Tab A's offline changes until they're synced.
+                    const ch = new BroadcastChannel(`vault_sync_channel_${userId}`);
+                    ch.postMessage({ type: 'VAULT_UPDATED', timestamp: Date.now() });
+                    ch.close();
+
                     showToast('Sync completed', 'success');
                 }
             } catch (error) {
@@ -423,12 +573,12 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         };
 
-        if (isOnline && outbox.length > 0 && !isSyncing) {
+        if (isOnline && queueSize > 0 && !isSyncing) {
             process();
         }
 
         return () => { mounted = false; };
-    }, [outbox, isOnline, syncConflict, token, userId, showToast, retryTrigger]); // Added retryTrigger
+    }, [queueSize, isOnline, syncConflict, token, userId, showToast, retryTrigger, queueManager, updateQueueSize]); // Added retryTrigger
 
     return (
         <VaultContext.Provider value={{

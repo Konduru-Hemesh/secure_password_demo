@@ -1,8 +1,8 @@
 import { useLocation } from 'wouter';
 import { Home, Settings, Eye, AlertOctagon, Chrome, PieChart, Sun, Moon } from 'lucide-react';
-import { useAutoLock } from '@/extension/popup/contexts/AutoLockContext';
-import { useToast } from '@/extension/popup/contexts/ToastContext';
-import { useTheme } from '@/extension/popup/contexts/ThemeContext';
+import { useAutoLock } from '@/app/contexts/AutoLockContext';
+import { useToast } from '@/app/contexts/ToastContext';
+import { useTheme } from '@/app/contexts/ThemeContext';
 
 /**
  * The main bottom navigation component for the application.

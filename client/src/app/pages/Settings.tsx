@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Shield, Clock, Trash2, User, RefreshCw, Smartphone, Monitor, Globe, Command, AlertTriangle, KeyRound } from 'lucide-react';
-import { useAutoLock } from '@/extension/popup/contexts/AutoLockContext';
-import { useToast } from '@/extension/popup/contexts/ToastContext';
-import ProfileModal from '@/extension/components/ProfileModal';
+import { Shield, Clock, Trash2, User, RefreshCw, Smartphone, Monitor, Globe, Command, AlertTriangle, KeyRound, ArrowLeft } from 'lucide-react';
+import { useAutoLock } from '@/app/contexts/AutoLockContext';
+import { useToast } from '@/app/contexts/ToastContext';
+import ProfileModal from '@/app/components/ProfileModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation } from 'wouter';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useVault } from '@/app/contexts/VaultContext';
 
 /**
  * The Settings Command Center.
@@ -12,7 +14,9 @@ import { useLocation } from 'wouter';
  */
 export default function Settings() {
     const { autoLockMinutes, setAutoLockMinutes } = useAutoLock();
+    const { syncVault, lastSynced } = useVault();
     const { showToast } = useToast();
+    const { user, token } = useAuth();
     const [, setLocation] = useLocation();
 
     const [clipboardClearDelay, setClipboardClearDelay] = useState(() => {
@@ -22,7 +26,14 @@ export default function Settings() {
 
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
-    const [lastSyncTime, setLastSyncTime] = useState<string | null>(localStorage.getItem('lastSyncTime') || 'Never');
+    const [devices, setDevices] = useState<any[]>([]);
+
+    const [profile, setProfile] = useState(() => {
+        const saved = localStorage.getItem('userProfileDetailed');
+        return saved ? JSON.parse(saved) : null;
+    });
+
+    const lastSyncTime = lastSynced ? new Date(lastSynced).toLocaleTimeString() : 'Never';
     const [timeUntilLock, setTimeUntilLock] = useState(autoLockMinutes * 60);
 
     // Danger Zone state
@@ -37,6 +48,33 @@ export default function Settings() {
     useEffect(() => {
         localStorage.setItem('clipboardClearDelay', clipboardClearDelay.toString());
     }, [clipboardClearDelay]);
+
+    // Update profile data when modal closes
+    useEffect(() => {
+        if (!showProfileModal) {
+            const saved = localStorage.getItem('userProfileDetailed');
+            if (saved) setProfile(JSON.parse(saved));
+        }
+    }, [showProfileModal]);
+
+    // Fetch real devices
+    useEffect(() => {
+        const fetchDevices = async () => {
+            if (!token) return;
+            try {
+                const res = await fetch('http://localhost:5000/api/devices', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setDevices(data.devices || []);
+                }
+            } catch (e) {
+                console.error('Failed to fetch devices', e);
+            }
+        };
+        fetchDevices();
+    }, [token, isSyncing]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -58,15 +96,16 @@ export default function Settings() {
         showToast(`${setting} updated`, 'success');
     };
 
-    const handleSync = () => {
+    const handleSync = async () => {
         setIsSyncing(true);
-        setTimeout(() => {
-            setIsSyncing(false);
-            const time = new Date().toLocaleTimeString();
-            setLastSyncTime(time);
-            localStorage.setItem('lastSyncTime', time);
+        try {
+            await syncVault();
             showToast('Vault synchronized securely', 'success');
-        }, 1500);
+        } catch (e) {
+            showToast('Sync failed', 'error');
+        } finally {
+            setIsSyncing(false);
+        }
     };
 
     const handleDeleteVault = () => {
@@ -95,6 +134,13 @@ export default function Settings() {
                 <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none" />
 
                 <div className="max-w-4xl mx-auto px-6 relative z-10 flex items-center justify-between">
+                    <button
+                        onClick={() => setLocation('/dashboard')}
+                        className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors mb-4 group w-fit"
+                    >
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                        <span className="text-sm font-medium">Back to Dashboard</span>
+                    </button>
                     <div>
                         <h1 className="text-4xl font-bold flex items-center gap-3 tracking-tight mb-2">
                             <Shield className="w-8 h-8 text-primary" />
@@ -237,20 +283,32 @@ export default function Settings() {
                         </button>
 
                         <div className="mt-6 space-y-3">
-                            <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-xl border border-white/5">
-                                <div className="flex items-center gap-3">
-                                    <Monitor className="w-4 h-4 text-primary" />
-                                    <span className="text-sm font-medium">This PC</span>
-                                </div>
-                                <span className="w-2 h-2 rounded-full bg-green-500" />
-                            </div>
-                            <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-xl border border-white/5 opacity-60">
-                                <div className="flex items-center gap-3">
-                                    <Smartphone className="w-4 h-4" />
-                                    <span className="text-sm">iPhone 15 Pro</span>
-                                </div>
-                                <span className="text-xs text-muted-foreground">2h ago</span>
-                            </div>
+                            {devices.map((device) => {
+                                const isThisPC = device.device_id === localStorage.getItem(`vault_device_id_${user?.id}`);
+                                return (
+                                    <div key={device.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-xl border border-white/5">
+                                        <div className="flex items-center gap-3">
+                                            {device.device_name.includes('PC') || device.device_name.includes('Windows') || device.device_name.includes('macOS') ? (
+                                                <Monitor className="w-4 h-4 text-primary" />
+                                            ) : (
+                                                <Smartphone className="w-4 h-4" />
+                                            )}
+                                            <div>
+                                                <span className="text-sm font-medium">{isThisPC ? 'This Device' : device.device_name}</span>
+                                                {isThisPC && <p className="text-[10px] text-primary">{device.device_name}</p>}
+                                            </div>
+                                        </div>
+                                        {device.is_trusted ? (
+                                            <span className="w-2 h-2 rounded-full bg-green-500" />
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground italic">Revoked</span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {devices.length === 0 && (
+                                <p className="text-xs text-muted-foreground text-center py-4">No other devices registered</p>
+                            )}
                         </div>
                     </div>
 
@@ -261,10 +319,14 @@ export default function Settings() {
                             Identity
                         </h3>
                         <div className="flex items-center gap-4 mb-6">
-                            <img src="https://images.unsplash.com/photo-1531123897727-8f129e1bf8ce?q=80&w=256&auto=format&fit=crop" alt="" className="w-12 h-12 rounded-full object-cover border-2 border-primary/20" />
+                            <img
+                                src={profile?.avatarUrl || "https://images.unsplash.com/photo-1531123897727-8f129e1bf8ce?q=80&w=256&auto=format&fit=crop"}
+                                alt="Profile"
+                                className="w-12 h-12 rounded-full object-cover border-2 border-primary/20"
+                            />
                             <div>
-                                <div className="font-bold text-sm">developer@zerovault.me</div>
-                                <div className="text-xs text-primary font-medium mt-0.5">Premium Plan Active</div>
+                                <div className="font-bold text-sm truncate max-w-[150px]">{user?.email || 'user@zerovault.me'}</div>
+                                <div className="text-xs text-muted-foreground mt-0.5">Free Security Tier</div>
                             </div>
                         </div>
                         <button

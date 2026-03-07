@@ -7,15 +7,15 @@ vi.mock('wouter', () => ({
     useLocation: () => ['/dashboard', vi.fn()],
 }));
 
-vi.mock('@/extension/popup/contexts/AutoLockContext', () => ({
+vi.mock('@/app/contexts/AutoLockContext', () => ({
     useAutoLock: () => ({ panicLock: vi.fn() }),
 }));
 
-vi.mock('@/extension/popup/contexts/ToastContext', () => ({
+vi.mock('@/app/contexts/ToastContext', () => ({
     useToast: () => ({ showToast: vi.fn() }),
 }));
 
-vi.mock('@/extension/popup/contexts/ThemeContext', () => ({
+vi.mock('@/app/contexts/ThemeContext', () => ({
     useTheme: () => ({ theme: 'dark', toggleTheme: vi.fn() }),
 }));
 

@@ -37,19 +37,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const token = localStorage.getItem('vault_token');
             const savedUser = localStorage.getItem('vault_user');
 
-            if (token && savedUser) {
+            if (token) {
                 try {
-                    setState({
-                        user: JSON.parse(savedUser),
-                        token,
-                        isAuthenticated: true,
-                        isLoading: false,
+                    // Fetch latest user data from server on init
+                    const response = await fetch(`${API_BASE_URL}/me`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
                     });
-                } catch {
-                    localStorage.removeItem('vault_token');
-                    localStorage.removeItem('vault_user');
-                    setState(prev => ({ ...prev, isLoading: false, token: null, isAuthenticated: false }));
+
+                    if (response.ok) {
+                        const userData = await response.json();
+                        localStorage.setItem('vault_user', JSON.stringify(userData));
+                        setState({
+                            user: userData,
+                            token,
+                            isAuthenticated: true,
+                            isLoading: false,
+                        });
+                        return;
+                    }
+
+                    // Fallback to saved user if fetch fails
+                    if (savedUser) {
+                        setState({
+                            user: JSON.parse(savedUser),
+                            token,
+                            isAuthenticated: true,
+                            isLoading: false,
+                        });
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Failed to sync auth on init', e);
                 }
+
+                // If token invalid, logout
+                localStorage.removeItem('vault_token');
+                localStorage.removeItem('vault_user');
+                setState(prev => ({ ...prev, isLoading: false, token: null, isAuthenticated: false }));
             } else {
                 setState(prev => ({ ...prev, isLoading: false }));
             }

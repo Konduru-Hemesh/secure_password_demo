@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, CheckCircle2, Mail, ShieldCheck, ChevronDown, Check, Archive } from 'lucide-react';
-import { useToast } from '@/extension/popup/contexts/ToastContext';
+import { useToast } from '@/app/contexts/ToastContext';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useVault } from '@/app/contexts/VaultContext';
+import { calculatePasswordStrength } from '@/shared/utils/passwordStrength';
 
 interface ProfileData {
     firstName: string;
@@ -27,24 +30,51 @@ interface ProfileModalProps {
 /** Renders the Profile Modal. */
 export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     const { showToast } = useToast();
+    const { user } = useAuth();
+    const { entries } = useVault();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const bannerInputRef = useRef<HTMLInputElement>(null);
 
+    // Calculate dynamic vault health
+    const vaultHealth = useMemo(() => {
+        if (!entries || entries.length === 0) return 100;
+        const totalScore = entries.reduce((acc, entry) => {
+            const { score } = calculatePasswordStrength(entry.password || '');
+            return acc + score;
+        }, 0);
+        const maxPossibleScore = entries.length * 4;
+        return Math.round((totalScore / maxPossibleScore) * 100);
+    }, [entries]);
+
     const [profile, setProfile] = useState<ProfileData>({
-        firstName: 'Vault',
-        lastName: 'User',
-        email: 'user@zerovault.me',
+        firstName: user?.displayName?.split(' ')[0] || 'Vault',
+        lastName: user?.displayName?.split(' ').slice(1).join(' ') || 'User',
+        email: user?.email || 'user@zerovault.me',
         country: 'United States',
-        username: 'vaultuser',
+        username: user?.email?.split('@')[0] || 'vaultuser',
         avatarUrl: 'https://images.unsplash.com/photo-1531123897727-8f129e1bf8ce?q=80&w=256&auto=format&fit=crop',
         bannerUrl: 'https://images.unsplash.com/photo-1543373014-cfe4f4bc1cdf?q=80&w=1000&auto=format&fit=crop',
         isPremium: true,
         isEmailVerified: true,
-        memberSince: '1 Mar, 2025',
-        lastLogin: 'Today at 9:41 AM',
-        totalLogins: 118,
-        vaultHealth: 92
+        memberSince: user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '1 Mar, 2025',
+        lastLogin: user?.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('en-US', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'Today at 9:41 AM',
+        totalLogins: user?.loginCount || 1,
+        vaultHealth: vaultHealth
     });
+
+    // Update profile when user data changes
+    useEffect(() => {
+        if (user) {
+            setProfile(prev => ({
+                ...prev,
+                email: user.email,
+                memberSince: user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : prev.memberSince,
+                lastLogin: user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('en-US', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : prev.lastLogin,
+                totalLogins: user.loginCount || prev.totalLogins,
+                vaultHealth: vaultHealth
+            }));
+        }
+    }, [user, vaultHealth]);
 
     useEffect(() => {
         const saved = localStorage.getItem('userProfileDetailed');
@@ -147,12 +177,7 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                             {/* Info & Badges */}
                             <div className="flex items-center gap-3 mb-1">
                                 <h2 className="text-3xl font-bold tracking-tight">{profile.firstName} {profile.lastName}</h2>
-                                {profile.isPremium && (
-                                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 border border-primary/20 rounded-md text-xs font-bold text-primary">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                                        Premium Plan
-                                    </span>
-                                )}
+
                             </div>
                             <p className="text-[#a1a1aa] mb-8">{profile.email}</p>
 
@@ -210,10 +235,10 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                                                 className="w-full pl-11 pr-4 py-2.5 bg-[#18181b] border border-[#3f3f46] rounded-xl focus:border-white focus:ring-1 focus:ring-white outline-none transition-all text-sm font-medium"
                                             />
                                         </div>
-                                        {profile.isEmailVerified && (
+                                        {profile.isEmailVerified && user?.createdAt && (
                                             <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-400 uppercase tracking-widest pl-1">
                                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                                Verified 2 Jan, 2025
+                                                VERIFIED {new Date(user.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                                             </div>
                                         )}
                                     </div>

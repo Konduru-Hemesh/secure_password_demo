@@ -1,22 +1,23 @@
 import { useState, useEffect, useMemo } from 'react';
 import { LayoutGrid, Plus, Trash2, Lock, Bell, Upload, Download, Tag, Briefcase, User, DollarSign, MessageSquare, Film, ShoppingCart, LineChart, Puzzle, ShieldCheck, Settings, AlertOctagon, LogOut, Shield, Edit } from 'lucide-react';
 import { useLocation } from 'wouter';
-import ProfileModal from '@/extension/components/ProfileModal';
-import EntryModal from '@/extension/components/EntryModal';
-import DeleteConfirm from '@/extension/components/DeleteConfirm';
-import HealthAuditModal from '@/extension/components/HealthAuditModal';
-import SuccessAnimation from '@/extension/components/SuccessAnimation';
-import { useToast } from '@/extension/popup/contexts/ToastContext';
+import ProfileModal from '@/app/components/ProfileModal';
+import EntryModal from '@/app/components/EntryModal';
+import DeleteConfirm from '@/app/components/DeleteConfirm';
+import HealthAuditModal from '@/app/components/HealthAuditModal';
+import SuccessAnimation from '@/app/components/SuccessAnimation';
+import { useToast } from '@/app/contexts/ToastContext';
 import { calculatePasswordStrength } from '@/shared/utils/passwordStrength';
-import { useAutoLock } from '@/extension/popup/contexts/AutoLockContext';
-import { AnimatedThemeToggle } from '@/extension/components/ui/animated-theme-toggle';
-import { EyeToggleIcon, CopiedIcon } from '@/extension/components/ui/animated-state-icons';
-import { AppleSpotlight } from '@/extension/components/ui/apple-spotlight';
-import { DonutChart } from '@/extension/components/ui/donut-chart';
+import { useAutoLock } from '@/app/contexts/AutoLockContext';
+import { AnimatedThemeToggle } from '@/app/components/ui/animated-theme-toggle';
+import { EyeToggleIcon, CopiedIcon } from '@/app/components/ui/animated-state-icons';
+import { AppleSpotlight } from '@/app/components/ui/apple-spotlight';
+import { DonutChart } from '@/app/components/ui/donut-chart';
 import { motion } from 'framer-motion';
-import { useVault } from '@/extension/popup/contexts/VaultContext';
-import { useAuth } from '@/extension/popup/contexts/AuthContext';
+import { useVault } from '@/app/contexts/VaultContext';
+import { useAuth } from '@/app/contexts/AuthContext';
 import { cryptoService } from '@/shared/sync/crypto.service';
+import { Cloud, CloudOff, RefreshCw } from 'lucide-react';
 
 /** Interface defining the structure for Vault Entry. */
 export interface VaultEntry {
@@ -29,6 +30,8 @@ export interface VaultEntry {
     isFavorite: boolean;
     category?: string;
     passwordHistory?: Array<{ password: string; changedAt: string }>;
+    version: number;
+    updatedAt: string;
 }
 
 const getCategoryColor = (cat = '') => {
@@ -84,7 +87,7 @@ export default function Dashboard() {
     const { showToast } = useToast();
     const { panicLock } = useAutoLock();
     const { logout } = useAuth();
-    const { entries: rawEntries, addEntry, updateEntry, deleteEntry, isSyncing, syncStatus } = useVault();
+    const { entries: rawEntries, addEntry, updateEntry, deleteEntry, isOnline, syncStatus } = useVault();
     const [search, setSearch] = useState('');
     const [copiedId, setCopiedId] = useState<number | null>(null);
     const [revealedId, setRevealedId] = useState<number | null>(null);
@@ -215,7 +218,7 @@ export default function Dashboard() {
         setTimeout(() => { setCopiedId(null); }, 3000);
     };
 
-    const handleSaveEntry = async (entryData: Omit<VaultEntry, 'id'> & { id?: number }) => {
+    const handleSaveEntry = async (entryData: VaultEntry) => {
         try {
             if (modalMode === 'edit' && entryData.id) {
                 await updateEntry(entryData.id, entryData);
@@ -292,18 +295,7 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                <div className="px-6 mt-auto shrink-0 relative">
-                    {/* Illustration replacement */}
-                    <div className="bg-gradient-to-tr from-primary/10 to-primary/5 rounded-3xl p-6 border border-primary/20 text-center relative overflow-hidden">
-                        <div className="w-24 h-24 bg-primary/20 blur-2xl absolute -top-8 -right-8 rounded-full" />
-                        <Shield className="w-10 h-10 text-primary mx-auto mb-4 relative z-10" />
-                        <h4 className="font-bold text-sm text-foreground mb-1 relative z-10">Upgrade Plan</h4>
-                        <p className="text-xs text-muted-foreground mb-4 relative z-10 leading-relaxed">Get premium features, zero borders.</p>
-                        <button className="bg-background border border-border/50 text-foreground px-4 py-2.5 rounded-xl text-xs font-bold w-full relative z-10 hover:bg-foreground/5 transition-colors">
-                            Upgrade Now
-                        </button>
-                    </div>
-                </div>
+
             </aside>
 
             {/* MAIN CONTENT AREA */}
@@ -323,6 +315,34 @@ export default function Dashboard() {
                                 ]}
                             />
                         </div>
+
+                        {/* Sync Status Indicator */}
+                        <div className="flex items-center gap-2">
+                            {syncStatus === 'syncing' ? (
+                                <div className="flex items-center gap-2 text-primary bg-primary/10 px-3 py-1.5 rounded-full text-xs font-bold border border-primary/20">
+                                    <RefreshCw className="w-4 h-4 animate-spin" /> Syncing...
+                                </div>
+                            ) : syncStatus === 'pending' ? (
+                                // Pending takes priority over offline mode label.
+                                // If offline with queued changes, show Sync Pending (not Offline Mode).
+                                <div className="flex items-center gap-2 text-amber-400 bg-amber-400/10 px-3 py-1.5 rounded-full text-xs font-bold border border-amber-400/20">
+                                    <Cloud className="w-4 h-4 animate-pulse" /> {!isOnline ? 'Offline – Sync Pending' : 'Sync Pending'}
+                                </div>
+                            ) : !isOnline ? (
+                                <div className="flex items-center gap-2 text-warning bg-warning/10 px-3 py-1.5 rounded-full text-xs font-bold border border-warning/20">
+                                    <CloudOff className="w-4 h-4" /> Offline Mode
+                                </div>
+                            ) : syncStatus === 'synced' ? (
+                                <div className="flex items-center gap-2 text-success bg-success/10 px-3 py-1.5 rounded-full text-xs font-bold border border-success/20">
+                                    <Cloud className="w-4 h-4" /> All changes synced
+                                </div>
+                            ) : syncStatus === 'error' ? (
+                                <div className="flex items-center gap-2 text-destructive bg-destructive/10 px-3 py-1.5 rounded-full text-xs font-bold border border-destructive/20">
+                                    <CloudOff className="w-4 h-4" /> Sync Error
+                                </div>
+                            ) : null}
+                        </div>
+
                         <button className="relative text-muted-foreground hover:text-foreground transition-colors p-2">
                             <Bell className="w-5 h-5" />
                             <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-background"></span>

@@ -71,9 +71,24 @@ router.post('/login', async (req: Request, res: Response) => {
 
         const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
 
+        // US 3.1 & Epic Dynamic Profile: Update login stats
+        await supabase
+            .from('users')
+            .update({
+                last_login_at: new Date().toISOString(),
+                login_count: (user.login_count || 0) + 1
+            })
+            .eq('id', user.id);
+
         res.json({
             token,
-            user: { id: user.id, email: user.email }
+            user: {
+                id: user.id,
+                email: user.email,
+                createdAt: user.created_at,
+                lastLoginAt: new Date().toISOString(),
+                loginCount: (user.login_count || 0) + 1
+            }
         });
     } catch (error) {
         console.error('Login error:', error);
@@ -86,12 +101,18 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     try {
         const { data: user } = await supabase
             .from('users')
-            .select('id, email, created_at')
+            .select('id, email, created_at, last_login_at, login_count')
             .eq('id', req.userId)
             .single();
 
         if (!user) return res.status(404).json({ error: 'User not found' });
-        res.json(user);
+        res.json({
+            id: user.id,
+            email: user.email,
+            createdAt: user.created_at,
+            lastLoginAt: user.last_login_at,
+            loginCount: user.login_count
+        });
     } catch {
         res.status(500).json({ error: 'Server error' });
     }

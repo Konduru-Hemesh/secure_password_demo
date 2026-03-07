@@ -22,7 +22,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
-    setupFiles: './src/extension/popup/setupTests.ts',
+    setupFiles: './src/app/setupTests.ts',
     exclude: ['server/**', 'node_modules/**'],
   },
 })

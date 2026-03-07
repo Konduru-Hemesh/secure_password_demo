@@ -1,8 +1,8 @@
 import { useLocation } from 'wouter';
 import { Suspense, lazy } from 'react';
-import { SignInPage, type Testimonial } from '@/extension/components/ui/sign-in';
-import { useAuth } from '@/extension/popup/contexts/AuthContext';
-import { useToast } from '@/extension/popup/contexts/ToastContext';
+import { SignInPage, type Testimonial } from '@/app/components/ui/sign-in';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useToast } from '@/app/contexts/ToastContext';
 
 const Spline = lazy(() => import('@splinetool/react-spline'));
 

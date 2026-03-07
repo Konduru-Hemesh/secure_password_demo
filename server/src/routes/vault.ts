@@ -33,7 +33,8 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
                 id, version, title, username, password, website, category,
                 is_favorite, is_deleted, deleted_at, updated_at, device_id, encrypted_history
             `)
-            .eq('user_id', userId);
+            .eq('user_id', userId)
+            .neq('is_deleted', true); // Include both is_deleted=false AND is_deleted=null (pre-existing entries)
 
         // Convert the flat postgres rows into the expected JSON format matching the frontend model
         const formattedEntries = (entries || []).map(row => ({

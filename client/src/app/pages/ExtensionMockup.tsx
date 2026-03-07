@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Globe, Shield, ShieldAlert, KeyRound, Search, Maximize2, Plus, Settings, Check, Lock, AlertTriangle } from 'lucide-react';
+import { Globe, Shield, ShieldAlert, KeyRound, Search, Maximize2, Plus, Settings, Check, Lock, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useLocation } from 'wouter';
 
 /**
  * A highly interactive mockup page demonstrating a browser extension playground.
  */
 export default function ExtensionMockup() {
+    const [, setLocation] = useLocation();
     const [currentUrl, setCurrentUrl] = useState('https://github.com/login');
     const [isExtensionOpen, setIsExtensionOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'vault' | 'generator'>('vault');
@@ -71,7 +73,14 @@ export default function ExtensionMockup() {
         <div className="min-h-screen bg-background font-body pb-24">
             {/* Minimal Header */}
             <div className="border-b border-white/5 bg-secondary/20">
-                <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex items-center justify-between">
+                <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+                    <button
+                        onClick={() => setLocation('/dashboard')}
+                        className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors mb-4 group w-fit"
+                    >
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                        <span className="text-sm font-medium">Back to Dashboard</span>
+                    </button>
                     <div>
                         <h1 className="text-3xl font-bold flex items-center gap-3 tracking-tight">
                             <Maximize2 className="w-6 h-6 text-primary" />

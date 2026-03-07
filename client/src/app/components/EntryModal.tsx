@@ -4,20 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import PasswordGenerator from './PasswordGenerator';
 import { EyeToggleIcon } from './ui/animated-state-icons';
 
-/**
- * Represents a single password entry in the vault.
- */
-interface VaultEntry {
-    id?: number;
-    website: string;
-    username: string;
-    password: string;
-    securityQuestion?: string;
-    securityAnswer?: string;
-    isFavorite: boolean;
-    category?: string;
-    passwordHistory?: Array<{ password: string; changedAt: string }>;
-}
+import type { VaultEntry } from '@/shared/models/vault.types';
 
 interface EntryModalProps {
     isOpen: boolean;
@@ -45,7 +32,11 @@ const itemVariants: Variants = {
 /** Renders the Entry Modal. */
 export default function EntryModal({ isOpen, onClose, onSave, entry, mode }: EntryModalProps) {
     const [formData, setFormData] = useState<VaultEntry>(
-        entry || { website: '', username: '', password: '', securityQuestion: '', securityAnswer: '', isFavorite: false }
+        entry || {
+            website: '', username: '', password: '',
+            securityQuestion: '', securityAnswer: '', isFavorite: false,
+            version: 1, updatedAt: new Date().toISOString(), id: 0
+        }
     );
     const [errors, setErrors] = useState<Partial<Record<keyof VaultEntry, string>>>({});
     const [showPassword, setShowPassword] = useState(false);
@@ -55,7 +46,12 @@ export default function EntryModal({ isOpen, onClose, onSave, entry, mode }: Ent
     // Reset when modal opens with new entry
     useEffect(() => {
         if (isOpen) {
-            setFormData(entry || { website: '', username: '', password: '', securityQuestion: '', securityAnswer: '', isFavorite: false });
+            // Include dummy version/updatedAt for UI state if adding a new entry
+            setFormData(entry || {
+                website: '', username: '', password: '',
+                securityQuestion: '', securityAnswer: '', isFavorite: false,
+                version: 1, updatedAt: new Date().toISOString(), id: 0
+            });
             setErrors({});
             setShowPassword(false);
             setIsCategoryOpen(false);

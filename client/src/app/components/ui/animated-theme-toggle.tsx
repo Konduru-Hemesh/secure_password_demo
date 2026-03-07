@@ -1,6 +1,6 @@
 import { Button } from "./button"
 import { motion, useMotionValue, useTransform } from "framer-motion";
-import { useTheme } from "@/extension/popup/contexts/ThemeContext";
+import { useTheme } from "@/app/contexts/ThemeContext";
 
 const cn = (...classes: (string | undefined | null | false)[]) => classes.filter(Boolean).join(' ');
 

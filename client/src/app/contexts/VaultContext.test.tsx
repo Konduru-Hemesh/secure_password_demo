@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import { VaultProvider, useVault } from '@/extension/popup/contexts/VaultContext';
-import { ToastProvider } from '@/extension/popup/contexts/ToastContext';
+import { VaultProvider, useVault } from '@/app/contexts/VaultContext';
+import { ToastProvider } from '@/app/contexts/ToastContext';
 import type { ReactNode } from 'react';
 
 const mockUser = { id: 'test-user' };

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Shield, AlertTriangle, CheckCircle, ArrowRight, RefreshCw, Key } from 'lucide-react';
+import { Shield, AlertTriangle, CheckCircle, ArrowRight, RefreshCw, Key, ArrowLeft } from 'lucide-react';
 
 import { calculatePasswordStrength, isCommonPassword } from '@/shared/utils/passwordStrength';
 import { useLocation } from 'wouter';
-import { useVault } from '@/extension/popup/contexts/VaultContext';
+import { useVault } from '@/app/contexts/VaultContext';
 import { cryptoService } from '@/shared/sync/crypto.service';
 
 interface VaultEntry {
@@ -73,18 +73,27 @@ export default function Insights() {
         <div className="min-h-screen bg-background pb-24 pt-8 px-4">
             <div className="max-w-4xl mx-auto space-y-8">
                 {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-display font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                            Vault Insights
-                        </h1>
-                        <p className="text-muted-foreground mt-2">Detailed availability analysis of your security posture.</p>
-                    </div>
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center border-4 border-white/5 relative">
-                        <span className={`text-2xl font-bold ${score > 70 ? 'text-primary' : score > 40 ? 'text-yellow-500' : 'text-red-500'}`}>
-                            {score}
-                        </span>
-                        <div className="absolute inset-0 rounded-full border-4 border-primary/20 border-t-primary animate-spin-slow" style={{ animationDuration: '3s' }} />
+                <div className="flex flex-col gap-4">
+                    <button
+                        onClick={() => setLocation('/dashboard')}
+                        className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors w-fit group"
+                    >
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                        <span className="text-sm font-medium">Back to Dashboard</span>
+                    </button>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h1 className="text-3xl font-display font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                                Vault Insights
+                            </h1>
+                            <p className="text-muted-foreground mt-2">Detailed availability analysis of your security posture.</p>
+                        </div>
+                        <div className="w-20 h-20 rounded-full flex items-center justify-center border-4 border-white/5 relative">
+                            <span className={`text-2xl font-bold ${score > 70 ? 'text-primary' : score > 40 ? 'text-yellow-500' : 'text-red-500'}`}>
+                                {score}
+                            </span>
+                            <div className="absolute inset-0 rounded-full border-4 border-primary/20 border-t-primary animate-spin-slow" style={{ animationDuration: '3s' }} />
+                        </div>
                     </div>
                 </div>
 
@@ -95,8 +104,8 @@ export default function Insights() {
                             <Shield className="w-6 h-6 text-red-500" />
                             <span className="text-2xl font-bold">{compromisedPasswords.length}</span>
                         </div>
-                        <h3 className="font-semibold text-red-200">Compromised</h3>
-                        <p className="text-xs text-red-300/70 mt-1">Passwords found in known breaches</p>
+                        <h3 className="font-semibold text-red-200">Risky</h3>
+                        <p className="text-xs text-red-300/70 mt-1">Found in common lists, might be compromised</p>
                     </div>
 
                     <div className="glass-panel p-5 rounded-2xl border-l-4 border-orange-500 bg-orange-500/5">
@@ -124,7 +133,7 @@ export default function Insights() {
                         <div className="glass-panel p-6 rounded-3xl">
                             <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-red-400">
                                 <AlertTriangle className="w-5 h-5" />
-                                Critical: Compromised Passwords
+                                Critical: Found in common lists, might get compromised
                             </h3>
                             <div className="space-y-3">
                                 {compromisedPasswords.map(entry => (
